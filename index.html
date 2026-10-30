@@ -12,9 +12,8 @@
   <div class="header-row">
     <h1>WorldDash</h1>
     <div class="header-meta">
-      <span id="build-label" class="build-label"></span>
       <span id="last-updated" class="last-updated">Loading…</span>
-      <button id="refresh-btn" type="button">Refresh</button>
+      <button id="refresh-btn" class="refresh-btn" type="button">Refresh</button>
     </div>
   </div>
   <p class="tagline">Warframe world state, everything in one place.</p>
@@ -33,6 +32,7 @@
 <main id="panels"></main>
 
 <footer class="site-footer">
+  <p id="build-label" class="build-label"></p>
   <p>Data: live world state via the WFCD community parser at
   <a href="https://api.warframestat.us/pc/?language=en" rel="noopener">api.warframestat.us</a>,
   sourced from Digital Extremes' world state feed. Item icons via the WFCD item CDN.
