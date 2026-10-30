@@ -29,10 +29,12 @@ Live site: https://anoncollab.github.io/warframe-world-dash/
 ## How it works
 
 Plain HTML, CSS, and JavaScript — no framework, no build step. The page
-fetches the parsed world state from the WFCD community API
-([api.warframestat.us](https://api.warframestat.us/pc/?language=en)) every
-five minutes and ticks all countdowns locally once per second. Sections
-whose data is empty say so instead of disappearing.
+fetches the raw world state feed through a small relay every five minutes
+and translates it in the browser (`translate.js`), using reference tables
+in `static-data.json` (the game's language strings, node data, and the
+arbitration and Steel Path incursion schedules). Countdowns tick locally
+once per second. Sections whose data is empty say so instead of
+disappearing.
 
 The layout is registry-driven: tabs and sections are declared in two lists
 in `app.js`, and the page skeleton is generated from them. Moving a section
@@ -41,12 +43,13 @@ to another tab is a one-line change to its registry entry.
 ## Data sources and credit
 
 - World state data originates from Digital Extremes' official world state
-  feed for Warframe.
-- Parsing, translation, and item data are provided by the Warframe
-  Community Developers (WFCD) — [warframestat.us](https://warframestat.us)
-  and the WFCD item CDN, which also serves the item icons.
-- Arbitration data is not part of the world state feed; the dashboard
-  reports the arbitration source's status honestly when it is unavailable.
+  feed for Warframe; the raw feed is relayed by a third-party mirror and
+  parsed locally in the browser.
+- Item icons are served by the Warframe Community Developers (WFCD) item
+  CDN.
+- The arbitration rotation is computed from the source's published
+  schedule, carried with the relay payload; the dashboard says so honestly
+  when no schedule is available.
 
 ## Disclaimer
 
