@@ -57,6 +57,14 @@ to another tab is a one-line change to its registry entry.
   bosses and modifiers, the Steel Path honors rotation, conclave
   challenges, synthesis targets — come from WFCD open data
   (`warframe-worldstate-data`).
+- The damage-type icons shown in challenge text come from
+  `warframe-public-export-plus`'s `ExportTextIcons.json` (icon files
+  served by browse.wf).
+- Prime Access contents exist in no feed (the raw feed carries only an
+  availability flag), so the weekly Action extracts them from the
+  WARFRAME Wiki's Prime Access article — the "Current Prime Access"
+  template in its wikitext — into `reference-data.json`, validated
+  fail-closed like every other source.
 - Item icons are served by the WFCD item CDN.
 - The arbitration and Steel Path incursion schedules are computed from
   the Tenno Tracker payload's published schedules; the dashboard says so
