@@ -142,6 +142,16 @@
     // highlighted span after HTML-escaping — raw tokens never reach
     // the page, and no string-table HTML is ever injected.
     const textIcons = obj(ref && ref.textIcons);
+    // Icon resolution via the Public Export image manifest snapshot:
+    // feed Icon fields and challenge-definition icons are bare texture
+    // paths; deck items resolve by uniqueName. Both maps carry the
+    // hashed textureLocation, served from DE's content CDN. Anything
+    // unmapped resolves to '' and the renderers show no icon.
+    const iconTextures = obj(ref && ref.iconTextures);
+    const itemIcons = obj(ref && ref.itemIcons);
+    const ICON_CDN = 'https://content.warframe.com/PublicExport';
+    const iconUrl = (path) => (path && iconTextures[path] ? `${ICON_CDN}${iconTextures[path]}` : '');
+    const itemIconUrl = (uniqueName) => (uniqueName && itemIcons[uniqueName] ? `${ICON_CDN}${itemIcons[uniqueName]}` : '');
     const cleanText = (s, count) => String(s ?? '')
       .replace(/\|COUNT\|/g, count != null ? String(count) : '')
       .replace(/<DT_([A-Z_]+)>/g, (m, code) => {
@@ -263,9 +273,9 @@
           const name = dropName(e.type);
           if (typeof e.probability === 'number') {
             const chance = Math.round(e.probability * 10000) / 100;
-            drops.push({ item: name, rarity: rarityFor(chance), chance, count: e.itemCount ?? 1 });
+            drops.push({ item: name, rarity: rarityFor(chance), chance, count: e.itemCount ?? 1, icon: itemIconUrl(e.type) });
           } else {
-            drops.push({ item: name, rarity: e.rarity ? humanize(e.rarity) : '', chance: null, count: e.itemCount ?? 1 });
+            drops.push({ item: name, rarity: e.rarity ? humanize(e.rarity) : '', chance: null, count: e.itemCount ?? 1, icon: itemIconUrl(e.type) });
           }
         }
       }
@@ -405,6 +415,7 @@
         })),
         isPersonal: !!g.Personal,
         isCommunity: !!g.Community,
+        icon: iconUrl(g.Icon),
       };
       if (g.HealthPct != null) ev.health = Number.parseFloat((g.HealthPct * 100).toFixed(2));
       return ev;
@@ -416,6 +427,7 @@
       expiry: iso(rawMs(a.Expiry)),
       mission: mkMission(a.MissionInfo),
       tag: a.Tag || undefined,
+      icon: iconUrl(a.Icon),
     }));
 
     const mkSortie = (raw, isArchon) => {
@@ -813,6 +825,7 @@
             isElite,
             desc: descKey ? cleanText(lang(descKey) ?? '', info.requiredCount) : '',
             title: nameKey ? cleanText(lang(nameKey) ?? humanize(c.Challenge), info.requiredCount) : humanize(c.Challenge),
+            icon: iconUrl(info.icon),
             reputation: info.standing != null
               ? info.standing
               : 1000 + (!isDaily ? 3500 : 0) + (isElite ? 2500 : 0),
@@ -887,7 +900,7 @@
     // rotation comes from the reference table, indexed by the parser's
     // anchor math — an 8-week cycle anchored at 2020-11-16T00:00Z,
     // weeks running Monday 00:00 UTC to Sunday 23:59:59 UTC — evaluated
-    // at the data's own timestamp.
+    // at the viewer's now, like the other timetable picks.
     {
       const sched = arr(obj(live.staticData).incursionsSchedule);
       const curIdx = pickCurrent(sched);
@@ -909,9 +922,9 @@
         }
         if (rotation.length) {
           const anchorSec = 1605398400; // 2020-11-16T00:00:00Z
-          const elapsed = (((dataSec - anchorSec) % 4838400) + 4838400) % 4838400;
+          const elapsed = (((nowSec - anchorSec) % 4838400) + 4838400) % 4838400;
           const ind = Math.floor(elapsed / 604800);
-          const d = new Date(dataSec * 1000);
+          const d = new Date(nowSec * 1000);
           const mondayMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(),
             d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
           const expiryMs = mondayMs + 604800000 - 1000;
@@ -997,6 +1010,7 @@
             return {
               title: info.name ? cleanText(lang(info.name) ?? humanize(path), info.requiredCount) : humanize(path),
               description: info.description ? cleanText(lang(info.description) ?? '', info.requiredCount) : '',
+              icon: iconUrl(info.icon),
             };
           };
           if (ev.challenge) e.challenge = describe(ev.challenge);

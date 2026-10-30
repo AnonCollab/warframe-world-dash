@@ -60,6 +60,13 @@ to another tab is a one-line change to its registry entry.
 - The damage-type icons shown in challenge text come from
   `warframe-public-export-plus`'s `ExportTextIcons.json` (icon files
   served by browse.wf).
+- Entry icons (alerts, events, Nightwave and calendar challenges)
+  and bounty-pool item icons come from Digital Extremes' Public
+  Export image manifest (`ExportManifest.json`, located via the
+  origin server's index): the weekly Action snapshots two reduced
+  maps from it into `reference-data.json` — interface-icon textures
+  by bare path, deck-item textures by uniqueName — and the images
+  themselves are served from DE's content CDN.
 - Prime Access contents exist in no feed (the raw feed carries only an
   availability flag), so the weekly Action extracts them from the
   WARFRAME Wiki's Prime Access article — the "Current Prime Access"
