@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WorldDash — Warframe World State</title>
 <meta name="description" content="A world state dashboard for Warframe: alerts, fissures, invasions, sorties, traders, weekly rotations and more, from the live world state feed.">
-<link rel="stylesheet" href="styles.css">
+<!-- Asset URLs carry a version token (?v=) bumped on every release that
+     changes app.js or styles.css: browsers cache those files aggressively,
+     and without the token an update can keep serving the old code. -->
+<link rel="stylesheet" href="styles.css?v=20261030-2">
 </head>
 <body>
 <header class="site-header">
@@ -40,6 +43,6 @@
   game content are property of Digital Extremes Ltd.</p>
 </footer>
 
-<script src="app.js"></script>
+<script src="app.js?v=20261030-2"></script>
 </body>
 </html>
