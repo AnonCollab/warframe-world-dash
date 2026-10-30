@@ -11,6 +11,14 @@
  *   dictionary, node regions, challenge definitions, mission types,
  *   factions, arbitration tiers) snapshotted from the same source the
  *   relay mirrors.
+ * Input 3 (ref): reference-data.json — open-data tables snapshotted by
+ *   the same weekly job: reward decks from browse.wf's
+ *   warframe-public-export-plus with item names from WFCD
+ *   warframe-items, plus WFCD warframe-worldstate-data tables (sortie
+ *   bosses/modifiers, the Steel Path rotation, conclave challenges,
+ *   synthesis targets, acolyte regions, global upgrade names).
+ *   Optional: every join below falls back to the pre-reference
+ *   behaviour without it.
  *
  * Field semantics and cycle mathematics are ported from the WFCD
  * warframe-worldstate-parser (MIT), the parser that produced the old
@@ -95,9 +103,10 @@
 
   const syndicateIndexCache = new WeakMap();
 
-  function translateWorldState(live, statics) {
+  function translateWorldState(live, statics, ref) {
     live = obj(live);
     statics = obj(statics);
+    ref = obj(ref);
     const ws = obj(live.worldState);
     const dict = obj(statics.dict);
     const osdict = obj(statics.osdict);
@@ -105,6 +114,13 @@
     const challenges = obj(statics.challenges);
     const missionTypes = obj(statics.missionTypes);
     const factions = obj(statics.factions);
+    const bountyRewards = obj(ref.bountyRewards);
+    const sortieData = obj(ref.sortieData);
+    const steelPathData = obj(ref.steelPath);
+    const conclaveData = obj(ref.conclaveData);
+    const persistentEnemyData = obj(ref.persistentEnemyData);
+    const upgradeTypes = obj(ref.upgradeTypes);
+    const simarisTargets = obj(ref.simarisTargets);
     const resolved = obj(live.resolvedItems);
     const dataSec = Number.isFinite(ws.Time) ? ws.Time : Math.floor(Date.now() / 1000);
 
@@ -200,6 +216,43 @@
       const eras = ['LITH', 'MESO', 'NEO', 'AXI', 'REQUIEM', 'OMNI'];
       const names = ['Lith', 'Meso', 'Neo', 'Axi', 'Requiem', 'Omnia'];
       return { tier: lang(`/Lotus/Language/Relics/Era_${eras[n - 1]}`) ?? names[n - 1] ?? humanize(modifier), tierNum: n };
+    };
+
+    // Bounty reward pools: a job's rewards path is the exact key of
+    // its reward deck in the reference tables (browse.wf's
+    // warframe-public-export-plus ExportRewards). A deck is a list of
+    // stage tables; the dialect flattens them into one pool, in order
+    // (the old drop tables flattened the same way, stage duplicates
+    // included — the renderer dedupes exact repeats). Item names come
+    // from the reference item-name map (WFCD warframe-items), falling
+    // back to the payload/dictionary/humanize chain. Chances are the
+    // deck probabilities as percents; rarity follows the bands the old
+    // drop tables used (verified against the previous dialect's pools:
+    // <1% Legendary, <10% Rare, <32% Uncommon, otherwise Common).
+    // Rarity-tiered deck entries (no probability) keep their tier and
+    // a null chance. Jobs whose deck the tables don't carry keep
+    // empty pools.
+    const itemNames = obj(ref.itemNames);
+    const dropName = (p) => itemNames[p] ?? itemName(p);
+    const rarityFor = (chance) => (chance < 1 ? 'Legendary' : chance < 10 ? 'Rare' : chance < 32 ? 'Uncommon' : 'Common');
+    const bountyPool = (j) => {
+      const deck = arr(bountyRewards[j && j.rewards]);
+      if (!deck.length) return null;
+      const drops = [];
+      for (const table of deck) {
+        for (const e of arr(table)) {
+          if (!e || !e.type) continue;
+          const name = dropName(e.type);
+          if (typeof e.probability === 'number') {
+            const chance = Math.round(e.probability * 10000) / 100;
+            drops.push({ item: name, rarity: rarityFor(chance), chance, count: e.itemCount ?? 1 });
+          } else {
+            drops.push({ item: name, rarity: e.rarity ? humanize(e.rarity) : '', chance: null, count: e.itemCount ?? 1 });
+          }
+        }
+      }
+      if (!drops.length) return null;
+      return { rewardPool: drops.map((x) => x.item), rewardPoolDrops: drops };
     };
 
     /* ---------- shared object builders ---------- */
@@ -349,14 +402,16 @@
 
     const mkSortie = (raw, isArchon) => {
       if (!raw) return undefined;
+      const modifierTypes = obj(sortieData.modifierTypes);
+      const modifierDescriptions = obj(sortieData.modifierDescriptions);
       const variants = arr(raw.Variants).map((v) => {
         const node = nodeName(v.node);
         const type = missionTypeName(v.missionType);
         return {
           missionType: type,
           missionTypeKey: type,
-          modifier: cleanEnum(v.modifierType, ['SORTIE_MODIFIER']),
-          modifierDescription: '',
+          modifier: modifierTypes[v.modifierType] ?? cleanEnum(v.modifierType, ['SORTIE_MODIFIER']),
+          modifierDescription: modifierDescriptions[v.modifierType] ?? '',
           node,
           nodeKey: node,
         };
@@ -369,9 +424,11 @@
           nightmare: !!m.nightmare, archwingRequired: !!m.archwingRequired, isSharkwing: !!m.isSharkwingMission,
         };
       });
-      // The boss's faction is not stated in the raw feed or the statics;
-      // when every variant sits on nodes of one faction, that faction is
-      // the sortie's. Archon hunts leave it blank (their nodes are not
+      // Boss name and faction come from the reference sortie table
+      // (archon entries there already carry the "Archon" prefix and the
+      // Narmer faction). Without the table, fall back: when every
+      // variant sits on nodes of one faction, that faction is the
+      // sortie's; archon hunts then leave it blank (their nodes are not
       // Narmer-controlled in the region table).
       let faction = '';
       if (!isArchon) {
@@ -379,6 +436,7 @@
         if (fs.length === 1) faction = factionName(fs[0]);
       }
       const bossName = cleanEnum(raw.Boss, ['SORTIE_BOSS']);
+      const bossInfo = obj(obj(sortieData.bosses)[raw.Boss]);
       return {
         id: oid(raw._id),
         activation: iso(rawMs(raw.Activation)),
@@ -386,9 +444,9 @@
         rewardPool: langStr(raw.Reward),
         variants,
         missions,
-        boss: isArchon ? `Archon ${bossName}` : bossName,
-        faction,
-        factionKey: faction,
+        boss: bossInfo.name ?? (isArchon ? `Archon ${bossName}` : bossName),
+        faction: bossInfo.faction ?? faction,
+        factionKey: bossInfo.faction ?? faction,
       };
     };
     out.sortie = mkSortie(arr(ws.Sorties)[0], false);
@@ -405,12 +463,13 @@
         syndicateKey: name,
         nodes: arr(sm.Nodes).map(nodeName),
         jobs: arr(sm.Jobs).map((j) => {
+          const pool = bountyPool(j);
           const job = {
             id: `${(String(j.jobType || '').split('/').pop() || 'Vault')}${expiryMs}`,
             expiry: iso(expiryMs),
             uniqueName: j.rewards,
-            rewardPool: [],
-            rewardPoolDrops: [],
+            rewardPool: pool ? pool.rewardPool : [],
+            rewardPoolDrops: pool ? pool.rewardPoolDrops : [],
             type: j.isVault
               ? `Isolation Vault ${humanize(j.locationTag)}`.trim()
               : (j.jobType ? langStr(j.jobType) : undefined),
@@ -459,7 +518,11 @@
     ];
 
     out.globalUpgrades = arr(ws.GlobalUpgrades).map((g) => ({
-      upgradeType: cleanEnum(g.UpgradeType, []),
+      // Display name from the reference upgrade table (the raw keys are
+      // internal booster types — GAMEPLAY_KILL_XP_AMOUNT is the affinity
+      // booster, GAMEPLAY_MONEY_PICKUP_AMOUNT credits, GAMEPLAY_PICKUP_AMOUNT
+      // resources, per the wiki's world state documentation).
+      upgradeType: obj(upgradeTypes[g.UpgradeType]).value ?? cleanEnum(g.UpgradeType, []),
       operationType: g.OperationType,
       value: g.Value,
       activation: iso(rawMs(g.ActivationDate ?? g.Activation)),
@@ -533,37 +596,63 @@
     });
 
     const lib = obj(ws.LibraryInfo);
+    // The feed names the synthesis target by number only
+    // (…/Targets/Research7Target); the number -> name table is part of
+    // the reference data (extracted from the WFCD language table —
+    // synthTargets' "[Research]" entries are the same targets in
+    // alphabetical order, so they cannot supply the numbering).
+    const researchNo = /Research(\d+)Target/i.exec(String(lib.LastCompletedTargetType || ''));
     out.simaris = {
-      target: lib.LastCompletedTargetType ? langStr(lib.LastCompletedTargetType) : 'N/A',
+      target: lib.LastCompletedTargetType
+        ? (researchNo && simarisTargets[researchNo[1]]) || langStr(lib.LastCompletedTargetType)
+        : 'N/A',
       isTargetActive: !lib.LastCompletedTargetType,
     };
 
     out.conclaveChallenges = arr(ws.PVPChallengeInstances).map((c) => {
+      // Title/description/standing, mode and category all resolve from
+      // the reference conclave table (keyed by the bare challenge id;
+      // the feed carries it as a /Lotus/PVPChallengeTypes/ path). The
+      // regex/humanize paths remain as fallbacks when the table lacks
+      // the entry.
+      const info = obj(obj(conclaveData.challenges)[String(c.challengeTypeRefID || '').split('/').pop()]);
       const cat = String(c.Category || '');
-      const categoryKey = /DAILY/i.test(cat) ? 'day' : (/ROOT/i.test(cat) ? 'week_root' : 'week');
+      const categoryKey = obj(obj(conclaveData.categories)[c.Category]).value
+        ?? (/DAILY/i.test(cat) ? 'day' : (/ROOT/i.test(cat) ? 'week_root' : 'week'));
       return {
         id: oid(c._id),
         activation: iso(rawMs(c.startDate)),
         expiry: iso(rawMs(c.endDate)),
         amount: arr(c.params)[0] ? arr(c.params)[0].v : undefined,
-        mode: c.PVPMode === 'PVPMODE_ALL' ? 'Any Mode' : cleanEnum(c.PVPMode, ['PVPMODE']),
+        mode: obj(obj(conclaveData.modes)[c.PVPMode]).value
+          ?? (c.PVPMode === 'PVPMODE_ALL' ? 'Any Mode' : cleanEnum(c.PVPMode, ['PVPMODE'])),
         category: categoryKey,
         categoryKey,
-        description: '',
-        title: humanize(c.challengeTypeRefID),
-        standing: 0,
-        daily: categoryKey === 'day',
-        rootChallenge: categoryKey === 'week_root',
+        description: info.description ?? '',
+        title: info.title ?? humanize(c.challengeTypeRefID),
+        standing: info.standing ?? 0,
+        daily: categoryKey.startsWith('day'),
+        rootChallenge: categoryKey.includes('root'),
       };
     });
 
-    out.persistentEnemies = arr(ws.PersistentEnemies).map((e) => ({
-      name: langStr(e.LocTag) || humanize(e.AgentType),
-      agentType: e.AgentType,
-      healthPercent: e.HealthPercent,
-      lastNode: e.LastDiscoveredLocation ? nodeName(e.LastDiscoveredLocation) : '',
-      isDiscovered: !!e.Discovered,
-    }));
+    out.persistentEnemies = arr(ws.PersistentEnemies).map((e) => {
+      // The raw Region is an index into the reference region table
+      // (parser semantics); the name resolves through the language
+      // dictionary via the entry's LocTag, as before.
+      const regionNames = arr(persistentEnemyData.regions);
+      return {
+        name: langStr(e.LocTag) || humanize(e.AgentType),
+        agentType: e.AgentType,
+        healthPercent: e.HealthPercent,
+        fleeDamage: e.FleeDamage,
+        rank: e.Rank,
+        region: regionNames[e.Region] != null ? String(regionNames[e.Region]) : '',
+        lastNode: e.LastDiscoveredLocation ? nodeName(e.LastDiscoveredLocation) : '',
+        lastDiscoveredTime: iso(rawMs(e.LastDiscoveredTime)),
+        isDiscovered: !!e.Discovered,
+      };
+    });
 
     /* ---------- cycles (computed; ported parser mathematics) ---------- */
     const now = Date.now();
@@ -751,9 +840,12 @@
       }
     }
 
-    // Steel Path: the weekly honors rotation table is not part of the
-    // raw feed or the statics, so only the daily incursions window —
-    // from the source's own incursions schedule — is stated.
+    // Steel Path: the daily incursions window comes from the source's
+    // own incursions schedule (as before); the weekly Teshin honors
+    // rotation comes from the reference table, indexed by the parser's
+    // anchor math — an 8-week cycle anchored at 2020-11-16T00:00Z,
+    // weeks running Monday 00:00 UTC to Sunday 23:59:59 UTC — evaluated
+    // at the data's own timestamp.
     {
       const sched = arr(obj(live.staticData).incursionsSchedule);
       let cur = null;
@@ -761,14 +853,31 @@
         if (e[0] <= dataSec) cur = e;
         else break;
       }
-      if (cur) {
-        out.steelPath = {
-          expiry: iso((cur[0] + 86400) * 1000),
-          incursions: {
+      const rotation = arr(steelPathData.rotation);
+      if (cur || rotation.length) {
+        out.steelPath = {};
+        if (cur) {
+          out.steelPath.expiry = iso((cur[0] + 86400) * 1000);
+          out.steelPath.incursions = {
             activation: iso(cur[0] * 1000),
             expiry: iso((cur[0] + 86400) * 1000),
-          },
-        };
+          };
+        }
+        if (rotation.length) {
+          const anchorSec = 1605398400; // 2020-11-16T00:00:00Z
+          const elapsed = (((dataSec - anchorSec) % 4838400) + 4838400) % 4838400;
+          const ind = Math.floor(elapsed / 604800);
+          const d = new Date(dataSec * 1000);
+          const mondayMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(),
+            d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+          const expiryMs = mondayMs + 604800000 - 1000;
+          out.steelPath.currentReward = rotation[ind % rotation.length];
+          out.steelPath.rotation = rotation;
+          out.steelPath.evergreens = arr(steelPathData.evergreen);
+          out.steelPath.activation = iso(mondayMs);
+          out.steelPath.expiry = iso(expiryMs);
+          out.steelPath.remaining = timeLeftStr(expiryMs - now);
+        }
       }
     }
 
