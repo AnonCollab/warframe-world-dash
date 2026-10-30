@@ -160,6 +160,8 @@ main { padding: 16px; max-width: 1440px; margin: 0 auto; }
 
 .empty { color: var(--text-dim); font-style: italic; margin: 4px 0; }
 .note { color: var(--text-dim); font-size: 12.5px; margin: 6px 0 0; }
+.dt-icon { height: 1em; width: 1em; vertical-align: -0.14em; }
+.hl { color: var(--accent); }
 
 .row {
   display: flex;
