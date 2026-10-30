@@ -324,11 +324,15 @@ select, input[type="search"] {
 /* Void Trader: the inventory fills the card. On wide screens the card
    is span-2 in an equal-height row; as a flex column its table area
    grows into the row height instead of stopping at the 62vh cap and
-   leaving blank card below (owner request, 2026-10-30). Narrow
-   screens keep the capped, scrolling table. */
+   leaving blank card below (owner request, 2026-10-30). The flex
+   basis is 0 so the table's own full height contributes nothing to
+   the row sizing — the row is set by the other cards, and the table
+   scrolls inside whatever height the card is stretched to (a basis
+   of auto let the table lay out at full length and inflate the row).
+   Narrow screens keep the capped, scrolling table. */
 @media (min-width: 1100px) {
   #sec-baro { display: flex; flex-direction: column; }
-  #sec-baro .table-wrap { flex: 1 1 auto; min-height: 0; max-height: none; }
+  #sec-baro .table-wrap { flex: 1 1 0; min-height: 240px; max-height: none; }
 }
 .card img { max-width: 100%; }
 
