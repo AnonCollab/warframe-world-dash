@@ -322,18 +322,19 @@ select, input[type="search"] {
 
 .table-wrap { overflow: auto; max-height: 62vh; -webkit-overflow-scrolling: touch; }
 /* Void Trader: the inventory fills the card. On wide screens the card
-   is span-2 in an equal-height row; as a flex column its table area
-   grows into the row height instead of stopping at the 62vh cap and
-   leaving blank card below (owner request, 2026-10-30). The table
-   area gets a definite height of 0 plus flex-grow: a definite size
-   is what keeps its full content height out of the row sizing (flex
-   basis alone did not — the table laid out at full length and
-   inflated the row), so the row is set by the other cards and the
-   table scrolls inside the height the card is stretched to.
-   Narrow screens keep the capped, scrolling table. */
+   is span-2 in an equal-height row; the card lays its content out as
+   grid rows (header, sub-line, then a 1fr row) so the table area
+   takes whatever height the stretched card gives it and scrolls
+   inside it, instead of stopping at the 62vh cap and leaving blank
+   card below (owner request, 2026-10-30). The 1fr row's minimum is
+   0, so the table's full content height stays out of the outer row
+   sizing — the row is set by the other cards. (Flex-column attempts
+   failed both ways: the table either inflated the row to its full
+   length or refused to grow into the stretched card.) Narrow
+   screens keep the capped, scrolling table. */
 @media (min-width: 1100px) {
-  #sec-baro { display: flex; flex-direction: column; }
-  #sec-baro .table-wrap { height: 0; flex-grow: 1; min-height: 240px; max-height: none; }
+  #sec-baro { display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+  #sec-baro .table-wrap { min-height: 240px; max-height: none; }
 }
 .card img { max-width: 100%; }
 
