@@ -133,6 +133,15 @@
       if (Object.prototype.hasOwnProperty.call(dict, key)) return dict[key];
       return undefined;
     };
+    // Game strings carry substitution tokens the client fills in:
+    // |COUNT| is the challenge's required count, <DT_*> tags mark
+    // damage-type icons, and |OPEN_COLOR|/|CLOSE_COLOR| wrap colored
+    // spans. Fill or strip them so raw tokens never reach the page.
+    const cleanText = (s, count) => String(s ?? '')
+      .replace(/\|COUNT\|/g, count != null ? String(count) : '')
+      .replace(/<DT_[A-Z_]+>/g, '')
+      .replace(/\|OPEN_COLOR\||\|CLOSE_COLOR\|/g, '')
+      .replace(/\s{2,}/g, ' ');
     // A language key (or any path) -> its string, else a humanized tail.
     const langStr = (key) => {
       if (!key) return '';
@@ -793,8 +802,8 @@
             expiry: iso(rawMs(c.Expiry)),
             isDaily,
             isElite,
-            desc: descKey ? (lang(descKey) ?? '') : '',
-            title: nameKey ? (lang(nameKey) ?? humanize(c.Challenge)) : humanize(c.Challenge),
+            desc: descKey ? cleanText(lang(descKey) ?? '', info.requiredCount) : '',
+            title: nameKey ? cleanText(lang(nameKey) ?? humanize(c.Challenge), info.requiredCount) : humanize(c.Challenge),
             reputation: info.standing != null
               ? info.standing
               : 1000 + (!isDaily ? 3500 : 0) + (isElite ? 2500 : 0),
@@ -966,8 +975,8 @@
           const describe = (path) => {
             const info = obj(challenges[path]);
             return {
-              title: info.name ? (lang(info.name) ?? humanize(path)) : humanize(path),
-              description: info.description ? (lang(info.description) ?? '') : '',
+              title: info.name ? cleanText(lang(info.name) ?? humanize(path), info.requiredCount) : humanize(path),
+              description: info.description ? cleanText(lang(info.description) ?? '', info.requiredCount) : '',
             };
           };
           if (ev.challenge) e.challenge = describe(ev.challenge);
