@@ -19,7 +19,10 @@
  *   updates them all, wherever they are.
  */
 
-const FEED_URL = 'https://api.warframestat.us/pc/?language=en';
+/* global translateWorldState */
+
+const FEED_URL = 'https://wfws.tacusinmemo.workers.dev/';
+const STATICS_URL = 'static-data.json';
 const ICON_CDN = 'https://cdn.warframestat.us/img/';
 const REFRESH_MS = 5 * 60 * 1000;
 
@@ -1015,15 +1018,45 @@ async function enrichIcons(root) {
   }
 }
 
+// Reference tables (language dictionary, node regions, ...) load once;
+// the promise is cached only while it succeeds, so a failed statics fetch
+// degrades to humanized fallbacks for one refresh and retries next time.
+let staticsPromise = null;
+function loadStatics() {
+  if (!staticsPromise) {
+    staticsPromise = fetch(STATICS_URL)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .catch((err) => {
+        staticsPromise = null;
+        console.error('statics load failed; rendering with fallbacks this refresh', err);
+        return {};
+      });
+  }
+  return staticsPromise;
+}
+
 async function load() {
   const banner = document.getElementById('error-banner');
   try {
     const res = await fetch(FEED_URL, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    state.data = await res.json();
+    const live = await res.json();
+    const statics = await loadStatics();
+    state.data = translateWorldState(live, statics);
     banner.hidden = true;
     document.getElementById('build-label').textContent = state.data.buildLabel ? `Build ${state.data.buildLabel}` : '';
-    document.getElementById('last-updated').textContent = `Updated ${new Date().toLocaleTimeString('en-US')}`;
+    // The stamp shows the DATA's own timestamp, not the fetch time, and
+    // flags the data visibly once it is more than 10 minutes old.
+    const updatedEl = document.getElementById('last-updated');
+    const dataMs = Date.parse(state.data.timestamp);
+    if (Number.isFinite(dataMs)) {
+      const stale = Date.now() - dataMs > 10 * 60 * 1000;
+      updatedEl.textContent = `Data as of ${new Date(dataMs).toLocaleTimeString('en-US')}${stale ? ' — STALE (over 10 min old)' : ''}`;
+      updatedEl.classList.toggle('timer', stale);
+      updatedEl.classList.toggle('t-urgent', stale);
+    } else {
+      updatedEl.textContent = '';
+    }
     renderAll();
   } catch (err) {
     console.error('world state fetch failed', err);
