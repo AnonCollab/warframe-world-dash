@@ -29,7 +29,17 @@ const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-const num = (x) => (typeof x === 'number' ? x.toLocaleString('en-US') : esc(x));
+// Numbers and numeric strings both get thousands separators ("50000" from
+// the feed renders as "50,000"); anything else is escaped as plain text.
+const num = (x) => {
+  if (typeof x === 'number') return x.toLocaleString('en-US');
+  if (typeof x === 'string' && /^-?\d+(\.\d+)?$/.test(x.trim())) return Number(x).toLocaleString('en-US');
+  return esc(x);
+};
+
+// "Lv 50" when a range's ends are identical, "Lv 50–60" otherwise.
+const lvlRange = (min, max) => (min == null ? ''
+  : (max == null || Number(max) === Number(min) ? `Lv ${min}` : `Lv ${min}–${max}`));
 
 function fmtDur(ms) {
   if (!Number.isFinite(ms)) return '—';
@@ -83,6 +93,9 @@ function pathName(p) {
   let tail = String(p).split('/').filter(Boolean).pop() || String(p);
   tail = tail.replace(/\.(level|json)$/i, '').replace(/^MPV/, '');
   return tail
+    // Split a word/digit boundary ("Intermission16" -> "Intermission 16")
+    // only after a 2+ letter run, so short codes like "T1" stay intact.
+    .replace(/([a-zA-Z]{2})(\d)/g, '$1 $2')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
@@ -221,7 +234,7 @@ function rAlerts(d) {
   return `<div class="entries-2col">${list.map((a) => {
     const m = a.mission || {};
     const flags = [m.nightmare ? 'Nightmare' : '', m.archwingRequired ? 'Archwing' : ''].filter(Boolean).join(' · ');
-    const lvl = m.minEnemyLevel != null ? ` · Lv ${m.minEnemyLevel}–${m.maxEnemyLevel}` : '';
+    const lvl = m.minEnemyLevel != null ? ` · ${lvlRange(m.minEnemyLevel, m.maxEnemyLevel)}` : '';
     return `<div class="entry">
       <div class="entry-head"><span class="entry-title">${esc(m.node || 'Alert')}</span>${timer(a.expiry, 'ends in ')}</div>
       <div class="entry-sub">${esc(m.type || '')} · ${esc(m.faction || '')}${lvl}${flags ? ` · ${esc(flags)}` : ''}</div>
@@ -328,10 +341,14 @@ function rInvasions(d) {
     const rewardBlock = inv.vsInfestation
       ? payBlock('Battle pay', def.reward)
       : `<div class="pay-cols">${payBlock(`${atk.faction || 'Attacker'} battle pay`, atk.reward)}${payBlock(`${def.faction || 'Defender'} battle pay`, def.reward)}</div>`;
+    // A completed invasion's feed "completion" is not a progress measure
+    // (it reads 0.0% or 100.1%), so finished entries show no bar or %.
+    const progress = inv.completed ? ''
+      : `<div class="bar-line">${bar(pct)}<span class="entry-sub">${Math.min(100, pct).toFixed(1)}%${invasionETA(inv)}</span></div>`;
     return `<div class="entry">
       <div class="entry-head"><span class="entry-title">${esc(inv.node)}</span><span>${inv.completed ? '<span class="chip">Completed</span>' : timer(inv.expiry || '', '')}</span></div>
       <div class="entry-sub">${esc(inv.desc || '')}${inv.vsInfestation ? '' : ` · ${esc(atk.faction || '')} vs ${esc(def.faction || '')}`}</div>
-      <div class="bar-line">${bar(pct)}<span class="entry-sub">${pct.toFixed(1)}%${invasionETA(inv)}</span></div>
+      ${progress}
       ${rewardBlock}
     </div>`;
   };
@@ -437,7 +454,7 @@ function rSteelPath(d) {
   const sp = d.steelPath;
   if (!sp) return empty('No Steel Path data in this feed snapshot.');
   const out = [];
-  if (sp.currentReward) out.push(row('Current Teshin reward', `${esc(sp.currentReward.name)} — ${num(sp.currentReward.cost)} Steel Essence`));
+  if (sp.currentReward) out.push(rowStacked('Current Teshin reward', `${esc(sp.currentReward.name)} — ${num(sp.currentReward.cost)} Steel Essence`));
   out.push(`<div class="entry-sub">${timer(sp.expiry, 'rotation ends in ')}</div>`);
   if ((sp.rotation || []).length) out.push(`<h3>Rotation</h3>` + chips(sp.rotation.map((r) => `${r.name} (${r.cost})`)));
   if ((sp.evergreens || []).length) out.push(`<details class="pool"><summary>Evergreen offerings (${sp.evergreens.length})</summary>${chips(sp.evergreens.map((r) => `${r.name} (${r.cost})`))}</details>`);
@@ -469,7 +486,7 @@ function rDescendia(d) {
   if (!dz || !(dz.challenges || []).length) return empty('No Descendia rotation in this feed snapshot.');
   const rows = dz.challenges.map((c) => {
     const auras = (c.auras || []).map((x) => displayName(x.name, x.uniqueName)).filter(Boolean).join(', ');
-    return `<tr><td class="num">${esc(c.index)}</td><td>${esc(cleanKey(c.typeKey))}</td><td>${esc(displayName(c.challenge, ''))}</td><td>${esc(auras)}</td></tr>`;
+    return `<tr><td class="num">${esc(c.index)}</td><td>${esc(cleanKey(c.typeKey))}</td><td>${esc(displayName(c.challenge, ''))}</td><td>${auras ? esc(auras) : '—'}</td></tr>`;
   }).join('');
   return `<div class="entry-head"><span class="entry-title">Descendia — ${dz.challenges.length} floors</span>${timer(dz.expiry, 'rotation ends in ')}</div>
     <div class="table-wrap"><table><thead><tr><th class="num">#</th><th>Type</th><th>Challenge</th><th>Auras</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -480,7 +497,12 @@ function rCalendar(d) {
   if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
   const head = `<div class="entry-head"><span class="entry-title">1999 Calendar — ${esc(cal.season || '')}${cal.yearIteration ? `, year ${esc(cal.yearIteration)}` : ''}</span>${timer(cal.expiry, 'week ends in ')}</div>`;
   let lastMonth = '';
-  const days = [...cal.days].sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0)).map((day) => {
+  // Days whose events list is empty carry nothing in any other field
+  // (checked against the feed shape: a day is only {date, events}), so
+  // they are omitted rather than rendered as a bare "—" row.
+  const eventDays = [...cal.days].filter((day) => (day.events || []).length);
+  if (!eventDays.length) return head + empty('No calendar events in this feed snapshot.');
+  const days = eventDays.sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0)).map((day) => {
     const t = Date.parse(day.date);
     const month = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }) : '';
     const monthHead = month && month !== lastMonth ? `<h3>${esc(month)}</h3>` : '';
@@ -504,7 +526,7 @@ function rFaceoff(d) {
   if (Date.parse(f.activation) <= now && Date.parse(f.expiry) > now) {
     return row('Faceoff bonus', `Active · ${timer(f.expiry, 'ends in ')}`);
   }
-  return row('Faceoff bonus', `Next window ${esc(fmtDate(f.next || f.activation))}`);
+  return row('Faceoff bonus', `Next window <span class="nowrap">${esc(fmtDate(f.next || f.activation))}</span>`);
 }
 
 function rClanWeekly(d) {
@@ -551,14 +573,25 @@ function rBounties(d) {
     sorted.forEach((s, si) => {
       const jobs = s.jobs.map((j) => {
         const drops = (j.rewardPoolDrops || []);
+        // The feed flattens every stage's drops into one list with no stage
+        // field, so stages cannot be regrouped; exact item+chance repeats
+        // (the same drop offered by several stages) are shown once.
+        const seenDrop = new Set();
+        const dropChips = drops.filter((x) => {
+          const k = `${x.item}|${x.chance}`;
+          if (seenDrop.has(k)) return false;
+          seenDrop.add(k);
+          return true;
+        }).map((x) => `${x.item}${x.chance != null ? ` (${x.chance}%)` : ''}`);
         const pool = drops.length
-          ? chips(drops.map((x) => `${x.item}${x.chance != null ? ` (${x.chance}%)` : ''}`))
+          ? chips(dropChips)
           : chips([...new Set(j.rewardPool || [])]);
         const standing = (j.standingStages || []).reduce((a, b) => a + b, 0);
+        const stages = (j.standingStages || []).length;
         const idx = poolIdx++;
         return `<div class="entry">
         <div class="entry-head"><span class="entry-title">${esc(j.type || 'Bounty')}</span><span class="entry-tools"><span class="entry-sub">${timer(j.expiry, 'ends in ')}</span><button type="button" class="pool-toggle" data-pool="${idx}" aria-expanded="false">Reward pool</button></span></div>
-        <div class="entry-sub">${(j.enemyLevels || []).length ? `Enemy Lv ${j.enemyLevels[0]}–${j.enemyLevels[j.enemyLevels.length - 1]} · ` : ''}${standing ? `${num(standing)} standing · ` : ''}${j.minMR ? `MR ${j.minMR}+ · ` : ''}${(j.standingStages || []).length} stage(s)</div>
+        <div class="entry-sub">${(j.enemyLevels || []).length ? `Enemy ${lvlRange(j.enemyLevels[0], j.enemyLevels[j.enemyLevels.length - 1])} · ` : ''}${standing ? `${num(standing)} standing · ` : ''}${j.minMR ? `MR ${j.minMR}+ · ` : ''}${stages} stage${stages === 1 ? '' : 's'}</div>
         <div class="pool-body" data-pool-body="${idx}" hidden>${pool}</div>
       </div>`;
       }).join('');
@@ -715,7 +748,15 @@ function flashRows() {
 }
 
 function rFlashSales(d) {
-  flashData = [...(d.flashSales || [])];
+  // The feed lists some sales twice verbatim; exact duplicates (same item,
+  // same price fields, same expiry) collapse to one row.
+  const seenSale = new Set();
+  flashData = [...(d.flashSales || [])].filter((f) => {
+    const k = `${f.item}|${f.premiumOverride}|${f.regularOverride}|${f.expiry}`;
+    if (seenSale.has(k)) return false;
+    seenSale.add(k);
+    return true;
+  });
   const sortOpts = [['discount', 'Discount'], ['ending', 'Ending soon'], ['name', 'Name A–Z']]
     .map(([v, label]) => `<option value="${v}"${flashFilter.sort === v ? ' selected' : ''}>${label}</option>`).join('');
   return `<div class="filters">
@@ -1012,5 +1053,5 @@ if (typeof document !== 'undefined') {
 
 /* Exported for the build-time render-check harness (no effect in browser). */
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { TABS, SECTIONS, fmtDur, pathName, cleanKey, displayName, isMangled, isArbStub, rewardHTML };
+  module.exports = { TABS, SECTIONS, fmtDur, pathName, cleanKey, displayName, isMangled, isArbStub, rewardHTML, num, lvlRange };
 }
