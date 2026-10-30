@@ -898,7 +898,7 @@ const SECTIONS = [
 
   { id: 'sortie', tab: 'sortie', title: 'Sortie', span: 2, render: rSortie },
   { id: 'archon', tab: 'sortie', title: 'Archon Hunt', span: 2, render: rArchon },
-  { id: 'arbitration', tab: 'sortie', title: 'Arbitration', render: rArbitration },
+  { id: 'arbitration', tab: 'alerts', title: 'Arbitration', render: rArbitration },
 
   { id: 'nightwave', tab: 'weekly', title: 'Nightwave', render: rNightwave },
   { id: 'circuit', tab: 'weekly', title: 'The Circuit (Duviri)', render: rCircuit },
