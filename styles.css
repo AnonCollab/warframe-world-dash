@@ -4,7 +4,7 @@
   --card: #2c3034;
   --card-edge: #3d4247;
   --text: #e8e4da;
-  --text-dim: #a9a499;
+  --text-dim: #bab6ad;
   --accent: #b08d57;
   --accent-cool: #7d9db5;
   --accent-green: #8fae8b;
@@ -190,6 +190,9 @@ main { padding: 16px; max-width: 1440px; margin: 0 auto; }
 }
 .timer.t-soon { color: var(--text); font-weight: 600; }
 .timer.t-urgent { color: #e2a15c; font-weight: 700; }
+/* Timers keep their natural case inside uppercased headings. */
+h3 .timer, .sticky-sub .timer { text-transform: none; }
+.nowrap { white-space: nowrap; }
 
 .entry { padding: 8px 0; border-bottom: 1px solid var(--bar-track); }
 .entry:last-child { border-bottom: none; }
@@ -213,11 +216,14 @@ main { padding: 16px; max-width: 1440px; margin: 0 auto; }
 .entry-head {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
-.entry-title { font-weight: 600; }
+/* The title shrinks and wraps within its own space; the timer/value slot
+   never drops to a second line. */
+.entry-head .entry-title { font-weight: 600; flex: 1 1 auto; min-width: 0; }
+.entry-head > :not(.entry-title) { flex: 0 0 auto; }
 .entry-sub { color: var(--text-dim); font-size: 13px; }
 .entry p { margin: 4px 0; }
 .desc { color: var(--text-dim); font-size: 13.5px; }
@@ -254,7 +260,11 @@ main { padding: 16px; max-width: 1440px; margin: 0 auto; }
   flex: none;
 }
 
-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+/* Tables live in an internally scrolling .table-wrap (see below), so the
+   head sticks within that container at top: 0. border-collapse must be
+   separate: under collapse, a sticky th loses its border and background
+   in several engines, which displaced the header onto the second row. */
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.5px; }
 th, td {
   text-align: left;
   padding: 7px 8px 7px 0;
@@ -262,16 +272,14 @@ th, td {
   vertical-align: top;
 }
 tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
-/* Sticky table heads need the wrap to not be a scroll container, so this
-   only applies on wide screens where the tables live in span-2 cards. */
-@media (min-width: 1100px) {
-  .table-wrap { overflow-x: visible; }
-  thead th {
-    position: sticky;
-    top: 54px; /* just under the sticky tab bar */
-    background: var(--card);
-    z-index: 2;
-  }
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 3;
+  /* The bottom rule travels with the sticky head as a shadow; the th's own
+     border stays behind in the flow under separate borders. */
+  box-shadow: inset 0 -1px 0 var(--bar-track);
 }
 th {
   color: var(--text-dim);
@@ -305,7 +313,7 @@ select, input[type="search"] {
   min-width: 170px;
 }
 
-.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap { overflow: auto; max-height: 62vh; -webkit-overflow-scrolling: touch; }
 .card img { max-width: 100%; }
 
 .error-banner {
