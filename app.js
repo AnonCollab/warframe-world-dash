@@ -23,6 +23,7 @@
 
 const FEED_URL = 'https://wfws.tacusinmemo.workers.dev/';
 const STATICS_URL = 'static-data.json';
+const REFERENCE_URL = 'reference-data.json';
 const ICON_CDN = 'https://cdn.warframestat.us/img/';
 const REFRESH_MS = 5 * 60 * 1000;
 
@@ -400,15 +401,6 @@ function rArbitration(d) {
     <div class="entry-head"><span class="entry-title">${esc(a.node)}</span>${timer(a.expiry, 'ends in ')}</div>
     <div class="entry-sub">${esc(a.type)} · ${esc(a.enemy)}</div>
   </div>`;
-}
-
-function rKuva(d) {
-  const list = d.kuva || [];
-  if (!list.length) return empty('No Kuva missions listed in this feed snapshot.');
-  return list.map((k) => `<div class="entry">
-      <div class="entry-head"><span class="entry-title">${esc(k.node || '')}</span>${timer(k.expiry, 'ends in ')}</div>
-      <div class="entry-sub">${esc(k.type || k.missionType || '')}${k.enemy ? ` · ${esc(k.enemy)}` : ''}</div>
-    </div>`).join('');
 }
 
 function rNightwave(d) {
@@ -869,7 +861,6 @@ const SECTIONS = [
   { id: 'sortie', tab: 'sortie', title: 'Sortie', span: 2, render: rSortie },
   { id: 'archon', tab: 'sortie', title: 'Archon Hunt', span: 2, render: rArchon },
   { id: 'arbitration', tab: 'sortie', title: 'Arbitration', render: rArbitration },
-  { id: 'kuva', tab: 'sortie', title: 'Kuva Missions', render: rKuva },
 
   { id: 'nightwave', tab: 'weekly', title: 'Nightwave', render: rNightwave },
   { id: 'circuit', tab: 'weekly', title: 'The Circuit (Duviri)', render: rCircuit },
@@ -1035,6 +1026,23 @@ function loadStatics() {
   return staticsPromise;
 }
 
+// Same load-once pattern for the WFCD reference tables (bounty pools,
+// sortie data, Steel Path rotation, conclave challenges): without them
+// the translator falls back to its table-less behaviour for one refresh.
+let referencePromise = null;
+function loadReference() {
+  if (!referencePromise) {
+    referencePromise = fetch(REFERENCE_URL)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .catch((err) => {
+        referencePromise = null;
+        console.error('reference load failed; rendering without tables this refresh', err);
+        return {};
+      });
+  }
+  return referencePromise;
+}
+
 async function load() {
   const banner = document.getElementById('error-banner');
   try {
@@ -1042,7 +1050,8 @@ async function load() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const live = await res.json();
     const statics = await loadStatics();
-    state.data = translateWorldState(live, statics);
+    const ref = await loadReference();
+    state.data = translateWorldState(live, statics, ref);
     banner.hidden = true;
     document.getElementById('build-label').textContent = state.data.buildLabel ? `Build ${state.data.buildLabel}` : '';
     // The stamp shows the DATA's own timestamp, not the fetch time, and
