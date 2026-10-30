@@ -26,6 +26,11 @@ Sources:
     start date. Prime Access contents exist in no feed (the raw feed
     carries only an availability flag), so they are extracted from the
     wiki's structured wikitext and validated like everything else.
+  - Digital Extremes' Public Export: ExportManifest.json (located via
+    the origin server's LZMA index) — the full image manifest. Reduced
+    to two icon maps: interface-icon textures by bare path (what the
+    feed's Icon fields and the challenge definitions reference) and
+    deck-item textures by uniqueName (bounty reward pools).
 
 Fails closed: any fetch or validation failure exits nonzero and writes
 nothing, so a bad pull can never replace the last good snapshot.
@@ -44,13 +49,15 @@ ITEMS_RAW = "https://raw.githubusercontent.com/WFCD/warframe-items/master/data/j
 EXPORT_REWARDS = "https://browse.wf/warframe-public-export-plus/ExportRewards.json"
 EXPORT_TEXT_ICONS = "https://browse.wf/warframe-public-export-plus/ExportTextIcons.json"
 WIKI_API = "https://wiki.warframe.com/api.php"
+EXPORT_INDEX = "https://origin.warframe.com/PublicExport/index_en.txt.lzma"
+EXPORT_BASE = "https://content.warframe.com/PublicExport/"
 
 RESEARCH_TARGET = re.compile(
     r"^/lotus/types/game/library/targets/research(\d+)target$"
 )
 
 
-def fetch_json_url(url, extra_headers=None):
+def fetch_bytes_url(url, extra_headers=None):
     # One retry on transport errors: chunked responses occasionally
     # truncate mid-stream, and a transient cut should not fail the run.
     # Validation failures are unaffected — they still fail closed.
@@ -62,11 +69,15 @@ def fetch_json_url(url, extra_headers=None):
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=300) as resp:
-                return json.load(resp)
+                return resp.read()
         except (urllib.error.URLError, http.client.HTTPException,
                 ConnectionError, TimeoutError) as e:
             last = e
     raise last
+
+
+def fetch_json_url(url, extra_headers=None):
+    return json.loads(fetch_bytes_url(url, extra_headers))
 
 
 def fetch_json(repo, name):
@@ -223,6 +234,42 @@ def prime_access():
     }
 
 
+def icon_manifest(deck_paths):
+    import lzma
+    index = lzma.decompress(fetch_bytes_url(EXPORT_INDEX)).decode("utf-8")
+    entry = next((line.strip() for line in index.splitlines()
+                  if line.startswith("ExportManifest.json!")), None)
+    if not entry:
+        fail("Public Export index: ExportManifest entry not listed")
+    doc = fetch_json_url(EXPORT_BASE + "Manifest/" + entry)
+    entries = doc.get("Manifest") if isinstance(doc, dict) else None
+    if not isinstance(entries, list) or len(entries) < 10000:
+        fail("ExportManifest.json: manifest missing or suspiciously small")
+    textures = {}
+    by_unique = {}
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        tex = e.get("textureLocation")
+        if not isinstance(tex, str) or not tex:
+            continue
+        if tex.split("!")[0].startswith("/Lotus/Interface/Icons/"):
+            textures[tex.split("!")[0]] = tex
+        if e.get("uniqueName"):
+            by_unique[e["uniqueName"]] = tex
+    # Manifest uniqueNames are the deck paths with the "/StoreItems"
+    # segment removed (the same dual-form resolution item_names uses).
+    items = {}
+    for path in deck_paths:
+        tex = by_unique.get(path) or by_unique.get(
+            path.replace("/StoreItems/", "/", 1))
+        if tex:
+            items[path] = tex
+    if len(textures) < 5000 or len(items) < 500:
+        fail("ExportManifest.json: icon maps suspiciously small")
+    return textures, items
+
+
 def main():
     out_path = sys.argv[1] if len(sys.argv) > 1 else "reference-data.json"
 
@@ -297,6 +344,13 @@ def main():
 
     out["textIcons"] = text_icons()
     out["primeAccess"] = prime_access()
+
+    deck_paths = {drop["type"] for stages in decks.values()
+                  for table in stages for drop in table
+                  if isinstance(drop, dict) and drop.get("type")}
+    textures, item_icons = icon_manifest(deck_paths)
+    out["iconTextures"] = textures
+    out["itemIcons"] = item_icons
 
     blob = json.dumps(
         out, sort_keys=True, separators=(",", ":"), ensure_ascii=False
