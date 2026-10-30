@@ -808,51 +808,61 @@
     // from the raw feed; there is nothing honest to fill in here.
     out.kuva = [];
 
-    // Arbitration: the relay payload carries the source's own rotation
-    // schedule (current + next once trimmed). The entry current at the
-    // DATA's timestamp is the live arbitration; node details come from
-    // the region table. Without a schedule there is no arbitration.
+    // Arbitration: the relay payload carries a window of the source's
+    // own rotation schedule. The entry current at the DATA's timestamp
+    // is the live arbitration; the entries after it are exposed in
+    // order as arbitrationUpcoming. Node details come from the region
+    // table. Without a schedule there is no arbitration.
     {
       const sched = arr(obj(live.staticData).arbysSchedule);
-      let cur = null, nxt = null;
-      for (const e of sched) {
-        if (e[0] <= dataSec) cur = e;
-        else { nxt = e; break; }
-      }
-      if (cur) {
-        const region = obj(regions[cur[1]]);
+      const arbOf = (e, expirySec) => {
+        const region = obj(regions[e[1]]);
         const type = missionTypeName(region.missionType);
-        const node = nodeName(cur[1]);
-        out.arbitration = {
-          id: `arbitration${cur[0]}`,
+        const node = nodeName(e[1]);
+        return {
+          id: `arbitration${e[0]}`,
           node,
           nodeKey: node,
-          activation: iso(cur[0] * 1000),
-          expiry: iso((nxt ? nxt[0] : cur[0] + 3600) * 1000),
+          activation: iso(e[0] * 1000),
+          expiry: iso(expirySec * 1000),
           enemy: factionName(region.faction),
           type,
           typeKey: type,
-          tier: obj(statics.arbyTiers)[cur[1]],
+          tier: obj(statics.arbyTiers)[e[1]],
           archwing: false,
           sharkwing: false,
           expired: false,
         };
+      };
+      let curIdx = -1;
+      for (let i = 0; i < sched.length; i++) {
+        if (sched[i][0] <= dataSec) curIdx = i;
+        else break;
+      }
+      if (curIdx >= 0) {
+        const endAt = (i) => (sched[i + 1] ? sched[i + 1][0] : sched[i][0] + 3600);
+        out.arbitration = arbOf(sched[curIdx], endAt(curIdx));
+        out.arbitrationUpcoming = sched.slice(curIdx + 1, curIdx + 10)
+          .map((e, j) => arbOf(e, endAt(curIdx + 1 + j)));
       }
     }
 
-    // Steel Path: the daily incursions window comes from the source's
-    // own incursions schedule (as before); the weekly Teshin honors
+    // Steel Path: the daily incursions come from the source's own
+    // incursions schedule — each entry's second field is that day's
+    // comma-joined node list, exposed resolved as incursionsDays
+    // (current day first, in order). The weekly Teshin honors
     // rotation comes from the reference table, indexed by the parser's
     // anchor math — an 8-week cycle anchored at 2020-11-16T00:00Z,
     // weeks running Monday 00:00 UTC to Sunday 23:59:59 UTC — evaluated
     // at the data's own timestamp.
     {
       const sched = arr(obj(live.staticData).incursionsSchedule);
-      let cur = null;
-      for (const e of sched) {
-        if (e[0] <= dataSec) cur = e;
+      let curIdx = -1;
+      for (let i = 0; i < sched.length; i++) {
+        if (sched[i][0] <= dataSec) curIdx = i;
         else break;
       }
+      const cur = curIdx >= 0 ? sched[curIdx] : null;
       const rotation = arr(steelPathData.rotation);
       if (cur || rotation.length) {
         out.steelPath = {};
@@ -862,6 +872,11 @@
             activation: iso(cur[0] * 1000),
             expiry: iso((cur[0] + 86400) * 1000),
           };
+          out.steelPath.incursionsDays = sched.slice(curIdx, curIdx + 7).map((e) => ({
+            activation: iso(e[0] * 1000),
+            expiry: iso((e[0] + 86400) * 1000),
+            nodes: String(e[1] || '').split(',').filter(Boolean).map((code) => nodeName(code)),
+          }));
         }
         if (rotation.length) {
           const anchorSec = 1605398400; // 2020-11-16T00:00:00Z
