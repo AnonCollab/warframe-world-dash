@@ -826,10 +826,29 @@
     // from the raw feed; there is nothing honest to fill in here.
     out.kuva = [];
 
+    // Timetable picks (arbitration, incursions) are judged at the
+    // viewer's wall clock, not the payload's timestamp: the schedules
+    // are fixed timetables and the windows carry hours of future
+    // entries, while the relayed data can lag minutes behind a
+    // rollover — anchoring the pick to the data's time showed the
+    // just-started mission as "upcoming" with an ended timer. The
+    // pick falls back to the window's first entry when the viewer's
+    // clock precedes it. Feed-driven sections still show what the
+    // feed says; only these timetable picks use the wall clock.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const pickCurrent = (sched) => {
+      let idx = -1;
+      for (let i = 0; i < sched.length; i++) {
+        if (sched[i][0] <= nowSec) idx = i;
+        else break;
+      }
+      return idx < 0 && sched.length ? 0 : idx;
+    };
+
     // Arbitration: the relay payload carries a window of the source's
-    // own rotation schedule. The entry current at the DATA's timestamp
-    // is the live arbitration; the entries after it are exposed in
-    // order as arbitrationUpcoming. Node details come from the region
+    // own rotation schedule. The entry current at the viewer's now is
+    // the live arbitration; the entries after it are exposed in order
+    // as arbitrationUpcoming. Node details come from the region
     // table. Without a schedule there is no arbitration.
     {
       const sched = arr(obj(live.staticData).arbysSchedule);
@@ -852,11 +871,7 @@
           expired: false,
         };
       };
-      let curIdx = -1;
-      for (let i = 0; i < sched.length; i++) {
-        if (sched[i][0] <= dataSec) curIdx = i;
-        else break;
-      }
+      const curIdx = pickCurrent(sched);
       if (curIdx >= 0) {
         const endAt = (i) => (sched[i + 1] ? sched[i + 1][0] : sched[i][0] + 3600);
         out.arbitration = arbOf(sched[curIdx], endAt(curIdx));
@@ -875,11 +890,7 @@
     // at the data's own timestamp.
     {
       const sched = arr(obj(live.staticData).incursionsSchedule);
-      let curIdx = -1;
-      for (let i = 0; i < sched.length; i++) {
-        if (sched[i][0] <= dataSec) curIdx = i;
-        else break;
-      }
+      const curIdx = pickCurrent(sched);
       const cur = curIdx >= 0 ? sched[curIdx] : null;
       const rotation = arr(steelPathData.rotation);
       if (cur || rotation.length) {
