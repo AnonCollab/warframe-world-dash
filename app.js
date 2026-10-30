@@ -709,7 +709,15 @@ function rPrimeAccess(d) {
   if (!p || !p.frame) return empty('Prime Access data is not in this snapshot.');
   const out = [`<div class="entry-head"><span class="entry-title">${esc(p.frame)}</span></div>`];
   if ((p.weapons || []).length) out.push(`<div class="entry-sub">${p.weapons.map(esc).join(' · ')}</div>`);
-  if (p.available) out.push(row('Available since', esc(fmtDateYear(p.available))));
+  if (p.available) {
+    // available is a date-only string; pin it to UTC so it does not
+    // shift a day back for viewers west of UTC.
+    const t = Date.parse(`${p.available}T00:00:00Z`);
+    const when = Number.isFinite(t)
+      ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+      : p.available;
+    out.push(row('Available since', esc(when)));
+  }
   if ((p.accessories || []).length) {
     out.push('<h3>Accessories</h3>');
     out.push(chips(p.accessories));
