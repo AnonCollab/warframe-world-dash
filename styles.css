@@ -109,7 +109,10 @@ main { padding: 16px; max-width: 1440px; margin: 0 auto; }
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 14px;
-  align-items: stretch;
+  /* Cards size to their own content: stretch made shorter cards in a
+     row inherit the tallest sibling's height and show blank space
+     under their content (seen on the Void Trader card, 2026-10-30). */
+  align-items: start;
 }
 @media (min-width: 1100px) {
   .card.span-2 { grid-column: span 2; }
