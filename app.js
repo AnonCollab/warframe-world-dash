@@ -250,7 +250,7 @@ function rAlerts(d) {
     const flags = [m.nightmare ? 'Nightmare' : '', m.archwingRequired ? 'Archwing' : ''].filter(Boolean).join(' · ');
     const lvl = m.minEnemyLevel != null ? ` · ${lvlRange(m.minEnemyLevel, m.maxEnemyLevel)}` : '';
     return `<div class="entry">
-      <div class="entry-head"><span class="entry-title">${esc(m.node || 'Alert')}</span>${timer(a.expiry, 'ends in ')}</div>
+      <div class="entry-head"><span class="entry-title">${imgTag(a.icon, ' class="entry-icon"')}${esc(m.node || 'Alert')}</span>${timer(a.expiry, 'ends in ')}</div>
       <div class="entry-sub">${esc(m.type || '')} · ${esc(m.faction || '')}${lvl}${flags ? ` · ${esc(flags)}` : ''}</div>
       ${rewardHTML(m.reward)}
     </div>`;
@@ -262,7 +262,7 @@ function rEvents(d) {
   if (!list.length) return empty('No active events.');
   return `<div class="entries-2col">${list.map((e) => {
     const parts = [];
-    parts.push(`<div class="entry"><div class="entry-head"><span class="entry-title">${esc(e.description || e.tag || 'Event')}</span>${timer(e.expiry, 'ends in ')}</div>`);
+    parts.push(`<div class="entry"><div class="entry-head"><span class="entry-title">${imgTag(e.icon, ' class="entry-icon"')}${esc(e.description || e.tag || 'Event')}</span>${timer(e.expiry, 'ends in ')}</div>`);
     if (e.node) parts.push(`<div class="entry-sub">${esc(e.node)}</div>`);
     if (e.maximumScore > 0) parts.push(row('Progress', `${num(e.currentScore || 0)} / ${num(e.maximumScore)}`) + bar(100 * (e.currentScore || 0) / e.maximumScore));
     else if (e.currentScore > 0) parts.push(row('Score', num(e.currentScore)));
@@ -431,7 +431,7 @@ function rNightwave(d) {
       if (n > best || (n === best && exp < groupExpiry)) { best = n; groupExpiry = exp; }
     }
     const act = (c) => `<div class="entry">
-      <div class="entry-head"><span class="entry-title">${richText(c.title || c.desc || '')}</span><span class="entry-sub">${num(c.reputation)} standing</span></div>
+      <div class="entry-head"><span class="entry-title">${imgTag(c.icon, ' class="entry-icon"')}${richText(c.title || c.desc || '')}</span><span class="entry-sub">${num(c.reputation)} standing</span></div>
       <div class="entry-sub">${richText(c.desc || '')}</div>
       ${c.expiry && c.expiry !== groupExpiry ? `<div class="entry-sub">${timer(c.expiry, 'ends in ')}</div>` : ''}
     </div>`;
@@ -526,8 +526,8 @@ function rCalendar(d) {
     if (month) lastMonth = month;
     const label = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
     const evs = (day.events || []).map((ev) => {
-      if (ev.challenge) return `<span class="chip">${esc(ev.type || 'To Do')}: ${richText(ev.challenge.title || '')}</span>`;
-      if (ev.upgrade) return `<span class="chip">Override: ${richText(ev.upgrade.title || '')}</span>`;
+      if (ev.challenge) return `<span class="chip">${esc(ev.type || 'To Do')}: ${imgTag(ev.challenge.icon, ' class="dt-icon"')}${richText(ev.challenge.title || '')}</span>`;
+      if (ev.upgrade) return `<span class="chip">Override: ${imgTag(ev.upgrade.icon, ' class="dt-icon"')}${richText(ev.upgrade.title || '')}</span>`;
       if (ev.reward) return `<span class="chip">${esc(ev.type || 'Reward')}: ${esc(displayName(ev.reward, ev.uniqueName))}</span>`;
       return `<span class="chip">${esc(ev.type || 'Event')}</span>`;
     }).join('');
@@ -594,14 +594,14 @@ function rBounties(d) {
         // field, so stages cannot be regrouped; exact item+chance repeats
         // (the same drop offered by several stages) are shown once.
         const seenDrop = new Set();
-        const dropChips = drops.filter((x) => {
+        const dropObjs = drops.filter((x) => {
           const k = `${x.item}|${x.chance}`;
           if (seenDrop.has(k)) return false;
           seenDrop.add(k);
           return true;
-        }).map((x) => `${x.item}${x.chance != null ? ` (${x.chance}%)` : ''}`);
+        });
         const pool = drops.length
-          ? chips(dropChips)
+          ? `<div class="chips">${dropObjs.map((x) => `<span class="chip">${imgTag(x.icon, ' class="dt-icon"')}${esc(x.item)}${x.chance != null ? ` (${x.chance}%)` : ''}</span>`).join('')}</div>`
           : chips([...new Set(j.rewardPool || [])]);
         const standing = (j.standingStages || []).reduce((a, b) => a + b, 0);
         const stages = (j.standingStages || []).length;
