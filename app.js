@@ -33,6 +33,16 @@ const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+// Game text the translator marked up: \u0001<icon path>\u0002 is a
+// damage-type icon (path from the snapshotted text-icon table, served
+// by browse.wf like the reward decks), \u0003/\u0004 wrap a highlighted
+// span. Escape first, then swap the markers — the string table itself
+// never contributes HTML.
+const richText = (s) => esc(s)
+  .replace(/\u0001([^\u0002]+)\u0002/g, (m, p) => `<img class="dt-icon" src="https://browse.wf${esc(p)}" alt="">`)
+  .replace(/\u0003/g, '<span class="hl">')
+  .replace(/\u0004/g, '</span>');
+
 // Numbers and numeric strings both get thousands separators ("50000" from
 // the feed renders as "50,000"); anything else is escaped as plain text.
 const num = (x) => {
@@ -421,8 +431,8 @@ function rNightwave(d) {
       if (n > best || (n === best && exp < groupExpiry)) { best = n; groupExpiry = exp; }
     }
     const act = (c) => `<div class="entry">
-      <div class="entry-head"><span class="entry-title">${esc(c.title || c.desc || '')}</span><span class="entry-sub">${num(c.reputation)} standing</span></div>
-      <div class="entry-sub">${esc(c.desc || '')}</div>
+      <div class="entry-head"><span class="entry-title">${richText(c.title || c.desc || '')}</span><span class="entry-sub">${num(c.reputation)} standing</span></div>
+      <div class="entry-sub">${richText(c.desc || '')}</div>
       ${c.expiry && c.expiry !== groupExpiry ? `<div class="entry-sub">${timer(c.expiry, 'ends in ')}</div>` : ''}
     </div>`;
     return `<h3>${title}${groupExpiry ? ` — ${timer(groupExpiry, 'ends in ')}` : ''}</h3>${acts.map(act).join('')}`;
@@ -516,8 +526,8 @@ function rCalendar(d) {
     if (month) lastMonth = month;
     const label = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
     const evs = (day.events || []).map((ev) => {
-      if (ev.challenge) return `<span class="chip">${esc(ev.type || 'To Do')}: ${esc(ev.challenge.title || '')}</span>`;
-      if (ev.upgrade) return `<span class="chip">Override: ${esc(ev.upgrade.title || '')}</span>`;
+      if (ev.challenge) return `<span class="chip">${esc(ev.type || 'To Do')}: ${richText(ev.challenge.title || '')}</span>`;
+      if (ev.upgrade) return `<span class="chip">Override: ${richText(ev.upgrade.title || '')}</span>`;
       if (ev.reward) return `<span class="chip">${esc(ev.type || 'Reward')}: ${esc(displayName(ev.reward, ev.uniqueName))}</span>`;
       return `<span class="chip">${esc(ev.type || 'Event')}</span>`;
     }).join('');
@@ -696,8 +706,16 @@ function rDarvo(d) {
 
 function rPrimeAccess(d) {
   const p = d.primeAccess;
-  if (!p) return empty('Prime Access state is not present in this feed snapshot.');
-  return row('Prime Access', esc(typeof p === 'string' ? p : (p.state || JSON.stringify(p))));
+  if (!p || !p.frame) return empty('Prime Access data is not in this snapshot.');
+  const out = [`<div class="entry-head"><span class="entry-title">${esc(p.frame)}</span></div>`];
+  if ((p.weapons || []).length) out.push(`<div class="entry-sub">${p.weapons.map(esc).join(' · ')}</div>`);
+  if (p.available) out.push(row('Available since', esc(fmtDateYear(p.available))));
+  if ((p.accessories || []).length) {
+    out.push('<h3>Accessories</h3>');
+    out.push(chips(p.accessories));
+  }
+  if (p.quote) out.push(`<p class="note">${esc(p.quote)}</p>`);
+  return out.join('');
 }
 
 /* Flash sales carry their own search/filter/sort controls, like fissures.

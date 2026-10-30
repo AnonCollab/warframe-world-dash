@@ -18,13 +18,23 @@ Sources:
     synthTargets, persistentEnemyData, upgradeTypes, and languages.json
     (only its synthesis research-target entries are kept — the full
     language table already reaches the dashboard via static-data.json)
+  - browse.wf (warframe-public-export-plus): ExportTextIcons.json —
+    the damage-type text icons (<DT_*> tags in game strings); only the
+    DT_* entries' DIT_AUTO paths are kept.
+  - The WARFRAME Wiki (wiki.warframe.com): the Prime Access article's
+    "Current Prime Access" template — frame, weapons, accessories and
+    start date. Prime Access contents exist in no feed (the raw feed
+    carries only an availability flag), so they are extracted from the
+    wiki's structured wikitext and validated like everything else.
 
 Fails closed: any fetch or validation failure exits nonzero and writes
 nothing, so a bad pull can never replace the last good snapshot.
 """
+import http.client
 import json
 import re
 import sys
+import urllib.error
 import urllib.request
 
 RAW = "https://raw.githubusercontent.com/WFCD/{repo}/master/data/{name}"
@@ -32,16 +42,31 @@ WORLDSTATE_DATA = "warframe-worldstate-data"
 ITEMS_API = "https://api.github.com/repos/WFCD/warframe-items/contents/data/json"
 ITEMS_RAW = "https://raw.githubusercontent.com/WFCD/warframe-items/master/data/json/{name}"
 EXPORT_REWARDS = "https://browse.wf/warframe-public-export-plus/ExportRewards.json"
+EXPORT_TEXT_ICONS = "https://browse.wf/warframe-public-export-plus/ExportTextIcons.json"
+WIKI_API = "https://wiki.warframe.com/api.php"
 
 RESEARCH_TARGET = re.compile(
     r"^/lotus/types/game/library/targets/research(\d+)target$"
 )
 
 
-def fetch_json_url(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "world-dash-reference"})
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        return json.load(resp)
+def fetch_json_url(url, extra_headers=None):
+    # One retry on transport errors: chunked responses occasionally
+    # truncate mid-stream, and a transient cut should not fail the run.
+    # Validation failures are unaffected — they still fail closed.
+    headers = {"User-Agent": "world-dash-reference"}
+    if extra_headers:
+        headers.update(extra_headers)
+    last = None
+    for _ in range(2):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                return json.load(resp)
+        except (urllib.error.URLError, http.client.HTTPException,
+                ConnectionError, TimeoutError) as e:
+            last = e
+    raise last
 
 
 def fetch_json(repo, name):
@@ -118,6 +143,86 @@ def item_names(decks):
     return out
 
 
+def text_icons():
+    raw = fetch_json_url(EXPORT_TEXT_ICONS)
+    if not isinstance(raw, dict) or len(raw) < 100:
+        fail("ExportTextIcons.json: table missing or suspiciously small")
+    out = {}
+    for key, variants in raw.items():
+        if key.startswith("DT_") and isinstance(variants, dict):
+            path = variants.get("DIT_AUTO")
+            if isinstance(path, str) and path.endswith(".png"):
+                out[key] = path
+    if len(out) < 30:
+        fail("ExportTextIcons.json: damage-type icon set missing or too small")
+    return out
+
+
+def _wiki_text(text):
+    # [[target|label]] -> label; [[label]] -> label
+    text = re.sub(r"\[\[[^|\]]*\|([^\]]*)\]\]", r"\1", text)
+    text = re.sub(r"\[\[([^\]]*)\]\]", r"\1", text)
+    return text.strip()
+
+
+def prime_access():
+    # Fetch only the "Current Prime Access" section's wikitext: the
+    # full article is ~30 KB and large chunked responses truncate
+    # mid-stream through some proxies; the section alone is a few KB.
+    # Connection: close for the same reason — a closing connection
+    # delivers the body whole where keep-alive chunks get cut.
+    listing = fetch_json_url(
+        WIKI_API + "?action=parse&page=Prime_Access&prop=sections&format=json",
+        {"Connection": "close"})
+    try:
+        index = next(s["index"] for s in listing["parse"]["sections"]
+                     if s.get("line") == "Current Prime Access")
+    except (KeyError, TypeError, StopIteration):
+        fail("wiki Prime Access: current section not listed")
+    doc = fetch_json_url(
+        WIKI_API + "?action=parse&page=Prime_Access&prop=wikitext"
+        f"&section={index}&format=json",
+        {"Connection": "close"})
+    try:
+        section = doc["parse"]["wikitext"]["*"]
+    except (KeyError, TypeError):
+        fail("wiki Prime Access: unexpected section response shape")
+    fields = {}
+    for m in re.finditer(
+            r"\|(wf|w1|w2|Quote|Available|syandana|armor|a2)\s*=\s*(.*?)"
+            r"(?=\n\|[A-Za-z]|\n\}\}|\Z)", section, re.DOTALL):
+        fields[m.group(1)] = m.group(2).strip()
+    wf = fields.get("wf", "")
+    heading = re.search(r"==(.+?)==", section)
+    if not wf or not heading or heading.group(1).strip() != f"{wf} Prime":
+        fail("wiki Prime Access: frame field missing or heading mismatch")
+    weapons = [f"{fields[k]} Prime" for k in ("w1", "w2") if fields.get(k)]
+    if not weapons:
+        fail("wiki Prime Access: no weapons parsed")
+    available_raw = fields.get("Available", "").split(" to ")[0].strip()
+    try:
+        from datetime import datetime
+        available = datetime.strptime(available_raw, "%B %d, %Y").date().isoformat()
+    except ValueError:
+        fail(f"wiki Prime Access: unparseable Available date {available_raw!r}")
+    accessories = []
+    if fields.get("syandana"):
+        accessories.append(f"{fields['syandana']} Prime Syandana")
+    if fields.get("armor"):
+        accessories.append(f"{fields['armor']} Prime Armor")
+    for part in re.split(r"<br\s*/?>", fields.get("a2", "")):
+        name = _wiki_text(part)
+        if name:
+            accessories.append(name)
+    return {
+        "frame": f"{wf} Prime",
+        "weapons": weapons,
+        "accessories": accessories,
+        "available": available,
+        "quote": _wiki_text(fields.get("Quote", "")),
+    }
+
+
 def main():
     out_path = sys.argv[1] if len(sys.argv) > 1 else "reference-data.json"
 
@@ -189,6 +294,9 @@ def main():
     if len(targets) < 7:
         fail("languages.json: synthesis research targets not found")
     out["simarisTargets"] = targets
+
+    out["textIcons"] = text_icons()
+    out["primeAccess"] = prime_access()
 
     blob = json.dumps(
         out, sort_keys=True, separators=(",", ":"), ensure_ascii=False
