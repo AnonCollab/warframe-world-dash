@@ -136,11 +136,20 @@
     // Game strings carry substitution tokens the client fills in:
     // |COUNT| is the challenge's required count, <DT_*> tags mark
     // damage-type icons, and |OPEN_COLOR|/|CLOSE_COLOR| wrap colored
-    // spans. Fill or strip them so raw tokens never reach the page.
+    // spans. Fill what we can and convert the rest to private markers
+    // (\u0001 icon-path \u0002, \u0003/\u0004 highlight span) that the
+    // renderers' richText() turns into the game's own icons and a
+    // highlighted span after HTML-escaping — raw tokens never reach
+    // the page, and no string-table HTML is ever injected.
+    const textIcons = obj(ref && ref.textIcons);
     const cleanText = (s, count) => String(s ?? '')
       .replace(/\|COUNT\|/g, count != null ? String(count) : '')
-      .replace(/<DT_[A-Z_]+>/g, '')
-      .replace(/\|OPEN_COLOR\||\|CLOSE_COLOR\|/g, '')
+      .replace(/<DT_([A-Z_]+)>/g, (m, code) => {
+        const p = textIcons[`DT_${code}`];
+        return p ? `\u0001${p}\u0002` : '';
+      })
+      .replace(/\|OPEN_COLOR\|/g, '\u0003')
+      .replace(/\|CLOSE_COLOR\|/g, '\u0004')
       .replace(/\s{2,}/g, ' ');
     // A language key (or any path) -> its string, else a humanized tail.
     const langStr = (key) => {
@@ -1036,7 +1045,10 @@
       }
     }
 
-    out.primeAccess = null; // not stated in the raw feed in dialect form
+    // Prime Access contents exist in no feed (the raw feed carries
+    // only an availability flag); they come from the reference
+    // snapshot's WARFRAME Wiki extraction.
+    out.primeAccess = (ref && ref.primeAccess) || null;
 
     return out;
   }
