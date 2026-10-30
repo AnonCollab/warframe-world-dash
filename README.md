@@ -63,7 +63,8 @@ to another tab is a one-line change to its registry entry.
 - Entry icons (alerts, events, Nightwave and calendar challenges)
   and bounty-pool item icons come from Digital Extremes' Public
   Export image manifest (`ExportManifest.json`, located via the
-  origin server's index): the weekly Action snapshots two reduced
+  Public Export index on DE's content host — the origin host
+  refuses GitHub-hosted runners): the weekly Action snapshots two reduced
   maps from it into `reference-data.json` — interface-icon textures
   by bare path, deck-item textures by uniqueName — and the images
   themselves are served from DE's content CDN.

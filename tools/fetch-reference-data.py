@@ -49,7 +49,11 @@ ITEMS_RAW = "https://raw.githubusercontent.com/WFCD/warframe-items/master/data/j
 EXPORT_REWARDS = "https://browse.wf/warframe-public-export-plus/ExportRewards.json"
 EXPORT_TEXT_ICONS = "https://browse.wf/warframe-public-export-plus/ExportTextIcons.json"
 WIKI_API = "https://wiki.warframe.com/api.php"
-EXPORT_INDEX = "https://origin.warframe.com/PublicExport/index_en.txt.lzma"
+# The index is read from the content host, not origin.warframe.com:
+# the origin host refuses GitHub-hosted runners (403 for curl and
+# urllib alike, probed 2026-10-30), while the content host serves
+# both the index and the manifests to them.
+EXPORT_INDEX = "https://content.warframe.com/PublicExport/index_en.txt.lzma"
 EXPORT_BASE = "https://content.warframe.com/PublicExport/"
 
 RESEARCH_TARGET = re.compile(
