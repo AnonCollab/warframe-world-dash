@@ -321,16 +321,14 @@ select, input[type="search"] {
 }
 
 .table-wrap { overflow: auto; max-height: 62vh; -webkit-overflow-scrolling: touch; }
-/* Void Trader: the card sizes to its own content (owner request,
-   2026-10-30: keep the inventory's internal scrollbar, remove the
-   blank under it). The equal-height row stretch left blank card
-   below the capped table whenever the card's row-mate was taller;
-   attempts to grow the table into the stretched card (flex column,
-   grid 1fr row) let the table's full height drive the row sizing
-   instead. So this one card opts out of the stretch: it ends right
-   under its scrolling table, at the price of a bottom edge that
-   sits above its row-mate's. */
-#sec-baro { align-self: start; }
+/* Void Trader: the inventory's scroll area is sized to fill the
+   card by fitBaroInventory() in app.js — it measures the card's
+   row-mates (Prime Resurgence sets the height) and sets the table
+   wrap's max-height to match, keeping the internal scrollbar and
+   leaving no blank under the table. Pure CSS fill attempts (flex
+   column, grid 1fr row) let the table's full height drive the row
+   sizing in this browser, so the height is measured instead. The
+   62vh cap above is the pre-measure default. */
 .card img { max-width: 100%; }
 
 .error-banner {

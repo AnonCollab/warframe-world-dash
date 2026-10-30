@@ -969,6 +969,37 @@ function activateTab(id) {
   });
   document.querySelectorAll('.tab-panel').forEach((p) => { p.hidden = p.dataset.panel !== id; });
   window.scrollTo(0, 0);
+  fitBaroInventory();
+}
+
+// Measured fill for the Void Trader inventory (see styles.css): the
+// card's height comes from its row — Prime Resurgence is the tall
+// card beside it — and the table wrap's max-height is set to fill
+// exactly that height, so the inventory keeps its own scrollbar with
+// no blank under it. Row-mates are measured, never the card itself,
+// so the setting cannot feed back into the row height.
+function fitBaroInventory() {
+  const card = document.getElementById('sec-baro');
+  const wrap = card && card.querySelector('.table-wrap');
+  if (!card || !wrap || !card.offsetHeight) return;
+  wrap.style.maxHeight = '';
+  const grid = card.parentElement;
+  if (!grid) return;
+  let rowH = card.offsetHeight;
+  for (const mate of grid.children) {
+    if (mate !== card && mate.offsetTop === card.offsetTop) {
+      rowH = Math.max(rowH, mate.offsetHeight);
+    }
+  }
+  const target = rowH - (card.offsetHeight - wrap.offsetHeight);
+  if (target > wrap.offsetHeight) wrap.style.maxHeight = `${target}px`;
+}
+
+let baroFitQueued = false;
+function queueBaroFit() {
+  if (baroFitQueued) return;
+  baroFitQueued = true;
+  requestAnimationFrame(() => { baroFitQueued = false; fitBaroInventory(); });
 }
 
 function renderAll() {
@@ -995,6 +1026,7 @@ function renderAll() {
   }
   tickTimers();
   enrichIcons(document);
+  fitBaroInventory();
 }
 
 function tickTimers() {
@@ -1121,6 +1153,7 @@ function boot() {
   if (TABS.some((t) => t.id === hash)) activateTab(hash);
   document.querySelectorAll('.refresh-btn').forEach((b) => b.addEventListener('click', load));
   document.getElementById('retry-btn').addEventListener('click', load);
+  window.addEventListener('resize', queueBaroFit);
   load();
   setInterval(load, REFRESH_MS);
   setInterval(tickTimers, 1000);
