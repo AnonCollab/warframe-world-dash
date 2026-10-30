@@ -395,12 +395,14 @@ function rArbitration(d) {
   const a = d.arbitration;
   if (isArbStub(a)) {
     return empty('Arbitration data unavailable from source.')
-      + `<p class="note">Arbitrations are not part of the world state feed; the separate upstream arbitration feed is currently down, so no mission can be shown. This section will populate itself if that feed returns.</p>`;
+      + `<p class="note">Arbitrations are read from the rotation schedule carried with the feed; no schedule was present in this snapshot.</p>`;
   }
-  return `<div class="entry">
-    <div class="entry-head"><span class="entry-title">${esc(a.node)}</span>${timer(a.expiry, 'ends in ')}</div>
-    <div class="entry-sub">${esc(a.type)} · ${esc(a.enemy)}</div>
+  const line = (e, when, prefix) => `<div class="entry">
+    <div class="entry-head"><span class="entry-title">${esc(e.node)}</span>${timer(when, prefix)}</div>
+    <div class="entry-sub">${esc(e.type)} · ${esc(e.enemy)}${e.tier ? ` · Tier ${esc(e.tier)}` : ''}</div>
   </div>`;
+  const up = (d.arbitrationUpcoming || []).map((u) => line(u, u.activation, 'starts in ')).join('');
+  return line(a, a.expiry, 'ends in ') + (up ? `<h3>Upcoming</h3>${up}` : '');
 }
 
 function rNightwave(d) {
@@ -453,7 +455,17 @@ function rSteelPath(d) {
   out.push(`<div class="entry-sub">${timer(sp.expiry, 'rotation ends in ')}</div>`);
   if ((sp.rotation || []).length) out.push(`<h3>Rotation</h3>` + chips(sp.rotation.map((r) => `${r.name} (${r.cost})`)));
   if ((sp.evergreens || []).length) out.push(`<details class="pool"><summary>Evergreen offerings (${sp.evergreens.length})</summary>${chips(sp.evergreens.map((r) => `${r.name} (${r.cost})`))}</details>`);
-  if (sp.incursions) out.push(row('Incursions window', `${fmtDate(sp.incursions.activation)} → ${fmtDate(sp.incursions.expiry)}`));
+  const days = sp.incursionsDays || [];
+  if (days.length) {
+    // Day labels in UTC: incursion days roll over at 00:00 UTC, so a
+    // local date would name the wrong day for most timezones.
+    const dayLabel = (isoDay) => new Date(Date.parse(isoDay))
+      .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+    out.push('<h3>Incursions</h3>' + days.map((day, i) => `<div class="entry">
+      <div class="entry-head"><span class="entry-title">${i === 0 ? 'Today — ' : ''}${esc(dayLabel(day.activation))}</span>${i === 0 ? timer(day.expiry, 'ends in ') : ''}</div>
+      ${chips(day.nodes)}
+    </div>`).join(''));
+  } else if (sp.incursions) out.push(row('Incursions window', `${fmtDate(sp.incursions.activation)} → ${fmtDate(sp.incursions.expiry)}`));
   return out.join('');
 }
 
