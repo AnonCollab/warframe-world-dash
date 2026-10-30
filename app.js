@@ -4,9 +4,11 @@
  *
  * Architecture (rearrangeability first):
  * - TABS is a plain list of { id, label }.
- * - SECTIONS is a plain ordered list of { id, tab, title, wide?, render, mount? }.
+ * - SECTIONS is a plain ordered list of { id, tab, title, span?, render, mount? }.
  *   `tab` is just a string key into TABS. Moving a section to another tab =
  *   editing its one `tab:` value. Reordering = moving its entry in the array.
+ *   `span` is 1 (default) or 2 grid columns on wide screens; it may also be a
+ *   function of the data, resolved at render time (used by the Baro section).
  * - The tab bar, panels, and section cards are all generated from these two
  *   lists; index.html holds no per-section markup.
  * - Every render(data) is self-contained: it reads only the worldstate object,
@@ -37,7 +39,7 @@ function fmtDur(ms) {
   const m = Math.floor((s % 3600) / 60), sec = s % 60;
   if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${sec}s`;
+  if (m > 0) return m < 10 ? `${m}m ${sec}s` : `${m}m`;
   return `${sec}s`;
 }
 
@@ -54,6 +56,21 @@ const fmtDate = (iso) => {
 
 const empty = (msg) => `<p class="empty">${esc(msg)}</p>`;
 const row = (label, value) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
+// Stacked variant for narrow cards: small-caps label above a full-width value.
+const rowStacked = (label, value) => `<div class="row stacked"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
+
+// An <img> that removes itself if the source fails, so a broken icon never
+// shows the browser's broken-image glyph. Empty src -> no element at all.
+const imgTag = (src, extra = '') => (src
+  ? `<img src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()"${extra}>`
+  : '');
+
+// Full date with year, for durations too long to read as a countdown.
+const fmtDateYear = (iso) => {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t) || new Date(t).getFullYear() < 2000) return '';
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
 const chips = (items) => `<div class="chips">${items.map((i) => `<span class="chip">${esc(i)}</span>`).join('')}</div>`;
 const bar = (pct, cls = '') => {
   const p = Math.max(0, Math.min(100, Math.abs(Number(pct) || 0)));
@@ -97,24 +114,42 @@ function displayName(name, uniqueName) {
 
 const humanizeTag = (tag) => pathName(String(tag || '').replace(/Syndicate$/, ''));
 
+// The feed sometimes names the trader by event id ("EvilBaroWeek3") instead
+// of by character; an id-like string (no spaces, mixed case/digits) is not a
+// display name — the Void Trader is Baro Ki'Teer.
+function traderDisplayName(character) {
+  const name = displayName(character, '');
+  if (name && !/\s/.test(name) && /[a-z][A-Z]|\d/.test(name)) return "Baro Ki'Teer";
+  return name;
+}
+
 // One reward object ({credits, items[], countedItems[], thumbnail}) -> HTML lines.
+// The feed puts the same items in BOTH items[] (names only) and countedItems[]
+// (count + uniqueName + type), so countedItems wins when present and every
+// name is emitted at most once per reward object.
 function rewardHTML(reward) {
   if (!reward) return '';
   const out = [];
   if (reward.credits) out.push(`<div class="reward-line"><span>${num(reward.credits)} credits</span></div>`);
-  (reward.items || []).forEach((it) => out.push(`<div class="reward-line"><span>${esc(it)}</span></div>`));
-  (reward.countedItems || []).forEach((ci, i) => {
-    const img = i === 0 && reward.thumbnail ? `<img src="${esc(reward.thumbnail)}" alt="" loading="lazy">` : '';
-    out.push(`<div class="reward-line">${img}<span>${ci.count > 1 ? `${num(ci.count)} × ` : ''}${esc(displayName(ci.type || ci.key, ci.uniqueName))}</span></div>`);
-  });
+  const seen = new Set();
+  const push = (name, count, img) => {
+    const key = String(name || '').toLowerCase();
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    out.push(`<div class="reward-line">${img || ''}<span>${count > 1 ? `${num(count)} × ` : ''}${esc(name)}</span></div>`);
+  };
+  const counted = reward.countedItems || [];
+  counted.forEach((ci, i) => push(
+    displayName(ci.type || ci.key, ci.uniqueName), ci.count, i === 0 ? imgTag(reward.thumbnail) : ''));
+  (reward.items || []).forEach((it, i) => push(it, 1, !counted.length && i === 0 ? imgTag(reward.thumbnail) : ''));
   return out.join('');
 }
 
 // Icon <img> for trader/market entries. Feed thumbnail wins; otherwise the
 // element is tagged for a sparing items-API lookup after render.
 function itemIcon(thumb, uniqueName) {
-  if (thumb) return `<img src="${esc(thumb)}" alt="" loading="lazy">`;
-  if (uniqueName) return `<img data-lookup="${esc(uniqueName)}" alt="" loading="lazy" hidden>`;
+  if (thumb) return imgTag(thumb);
+  if (uniqueName) return `<img data-lookup="${esc(uniqueName)}" alt="" loading="lazy" onerror="this.remove()" hidden>`;
   return '';
 }
 
@@ -125,7 +160,7 @@ function rCycles(d) {
   const out = [];
   const cyc = (label, c, stateText) => {
     if (!c) return;
-    out.push(row(label, `${esc(stateText)} · ${timer(c.expiry, 'ends in ')}`));
+    out.push(rowStacked(label, `${esc(stateText)} · ${timer(c.expiry, 'ends in ')}`));
   };
   if (d.earthCycle) cyc('Earth', d.earthCycle, d.earthCycle.isDay ? 'Day' : 'Night');
   if (d.cetusCycle) cyc('Cetus', d.cetusCycle, d.cetusCycle.isDay ? 'Day' : 'Night');
@@ -141,8 +176,8 @@ function rConstruction(d) {
   if (!c) return empty('No construction data in this feed snapshot.');
   const f = parseFloat(c.fomorianProgress) || 0;
   const r = parseFloat(c.razorbackProgress) || 0;
-  return row('Balor Fomorian', `${f.toFixed(2)}%`) + bar(f, 'fomorian')
-    + row('Razorback', `${r.toFixed(2)}%`) + bar(r, 'razorback')
+  return rowStacked('Balor Fomorian', `${f.toFixed(2)}%`) + bar(f, 'fomorian')
+    + rowStacked('Razorback', `${r.toFixed(2)}%`) + bar(r, 'razorback')
     + `<p class="note">Construction progress toward the next Fomorian / Razorback event.</p>`;
 }
 
@@ -152,25 +187,25 @@ function rOverviewTraders(d) {
   if (vt) {
     const now = Date.now();
     const act = Date.parse(vt.activation), exp = Date.parse(vt.expiry);
-    const who = `${displayName(vt.character, '')} — ${esc(vt.location || '')}`;
-    if (act > now) out.push(row('Void Trader', `${who} · ${timer(vt.activation, 'arrives in ')}`));
-    else if (exp > now) out.push(row('Void Trader', `${who} · ${timer(vt.expiry, 'leaves in ')}`));
+    const who = `${esc(traderDisplayName(vt.character))} — ${esc(vt.location || '')}`;
+    if (act > now) out.push(rowStacked('Void Trader', `${who} · ${timer(vt.activation, 'arrives in ')}`));
+    else if (exp > now) out.push(rowStacked('Void Trader', `${who} · ${timer(vt.expiry, 'leaves in ')}`));
   }
   const vz = d.vaultTrader;
-  if (vz) out.push(row('Varzia (Prime Resurgence)', `${esc(vz.location || '')} · ${timer(vz.expiry, 'rotation ends in ')}`));
+  if (vz) out.push(rowStacked('Varzia (Prime Resurgence)', `${esc(vz.location || '')} · ${timer(vz.expiry, 'rotation ends in ')}`));
   const deal = (d.dailyDeals || [])[0];
-  if (deal) out.push(row('Darvo deal', `${esc(displayName(deal.item, deal.uniqueName))} — ${num(deal.salePrice)} plat${deal.discount ? ` (−${deal.discount}%)` : ''} · ${timer(deal.expiry, 'ends in ')}`));
+  if (deal) out.push(rowStacked('Darvo deal', `${esc(displayName(deal.item, deal.uniqueName))} — ${num(deal.salePrice)} plat${deal.discount ? ` (−${deal.discount}%)` : ''} · ${timer(deal.expiry, 'ends in ')}`));
   return out.length ? out.join('') : empty('No trader information in this feed snapshot.');
 }
 
 function rOverviewDaily(d) {
   const out = [];
-  if (d.sortie && d.sortie.boss) out.push(row('Sortie', `${esc(d.sortie.boss)} (${esc(d.sortie.faction || '')}) · ${timer(d.sortie.expiry, 'ends in ')}`));
-  if (d.archonHunt && d.archonHunt.boss) out.push(row('Archon Hunt', `${esc(d.archonHunt.boss)} · ${timer(d.archonHunt.expiry, 'ends in ')}`));
-  if (d.steelPath && d.steelPath.currentReward) out.push(row('Steel Path (Teshin)', `${esc(d.steelPath.currentReward.name)} — ${num(d.steelPath.currentReward.cost)} Steel Essence`));
-  if (d.simaris && d.simaris.target) out.push(row('Simaris target', `${esc(d.simaris.target)}${d.simaris.isTargetActive ? '' : ' (not currently active)'}`));
+  if (d.sortie && d.sortie.boss) out.push(rowStacked('Sortie', `${esc(d.sortie.boss)} (${esc(d.sortie.faction || '')}) · ${timer(d.sortie.expiry, 'ends in ')}`));
+  if (d.archonHunt && d.archonHunt.boss) out.push(rowStacked('Archon Hunt', `${esc(d.archonHunt.boss)} · ${timer(d.archonHunt.expiry, 'ends in ')}`));
+  if (d.steelPath && d.steelPath.currentReward) out.push(rowStacked('Steel Path (Teshin)', `${esc(d.steelPath.currentReward.name)} — ${num(d.steelPath.currentReward.cost)} Steel Essence`));
+  if (d.simaris && d.simaris.target) out.push(rowStacked('Simaris target', `${esc(d.simaris.target)}${d.simaris.isTargetActive ? '' : ' (not currently active)'}`));
   const arb = d.arbitration;
-  out.push(row('Arbitration', isArbStub(arb) ? 'Data unavailable from source' : `${esc(arb.node)} — ${esc(arb.type)}`));
+  out.push(rowStacked('Arbitration', isArbStub(arb) ? 'Data unavailable from source' : `${esc(arb.node)} — ${esc(arb.type)}`));
   return out.join('');
 }
 
@@ -183,7 +218,7 @@ function isArbStub(a) {
 function rAlerts(d) {
   const list = (d.alerts || []).filter((a) => Date.parse(a.expiry) > Date.now() - 60000);
   if (!list.length) return empty('No active alerts.');
-  return list.map((a) => {
+  return `<div class="entries-2col">${list.map((a) => {
     const m = a.mission || {};
     const flags = [m.nightmare ? 'Nightmare' : '', m.archwingRequired ? 'Archwing' : ''].filter(Boolean).join(' · ');
     const lvl = m.minEnemyLevel != null ? ` · Lv ${m.minEnemyLevel}–${m.maxEnemyLevel}` : '';
@@ -192,13 +227,13 @@ function rAlerts(d) {
       <div class="entry-sub">${esc(m.type || '')} · ${esc(m.faction || '')}${lvl}${flags ? ` · ${esc(flags)}` : ''}</div>
       ${rewardHTML(m.reward)}
     </div>`;
-  }).join('');
+  }).join('')}</div>`;
 }
 
 function rEvents(d) {
   const list = d.events || [];
   if (!list.length) return empty('No active events.');
-  return list.map((e) => {
+  return `<div class="entries-2col">${list.map((e) => {
     const parts = [];
     parts.push(`<div class="entry"><div class="entry-head"><span class="entry-title">${esc(e.description || e.tag || 'Event')}</span>${timer(e.expiry, 'ends in ')}</div>`);
     if (e.node) parts.push(`<div class="entry-sub">${esc(e.node)}</div>`);
@@ -214,7 +249,7 @@ function rEvents(d) {
     if ((e.jobs || []).length) parts.push(`<div class="entry-sub">${e.jobs.length} event mission(s)</div>`);
     parts.push('</div>');
     return parts.join('');
-  }).join('');
+  }).join('')}</div>`;
 }
 
 function rNews(d) {
@@ -222,10 +257,10 @@ function rNews(d) {
   if (!list.length) return empty('No news in this feed snapshot.');
   return list.map((n) => {
     const flags = [n.update ? 'Update' : '', n.stream ? 'Stream' : '', n.primeAccess ? 'Prime Access' : '', n.priority ? 'Priority' : ''].filter(Boolean);
-    const date = fmtDate(n.date);
+    const segments = [fmtDate(n.date), ...flags].filter(Boolean);
     return `<div class="news-item">
       <a href="${esc(n.link || '#')}" target="_blank" rel="noopener">${esc(n.message || '')}</a>
-      <div class="date">${date ? `${esc(date)} · ` : ''}${flags.map(esc).join(' · ')}</div>
+      ${segments.length ? `<div class="date">${segments.map(esc).join(' · ')}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -247,9 +282,11 @@ function fissureGroups(d) {
   const list = (d.fissures || []).filter((f) => Date.parse(f.expiry) > now
     && (!fissureFilter.tier || f.tier === fissureFilter.tier)
     && (!fissureFilter.type || f.missionType === fissureFilter.type));
-  return `<h3>Normal</h3>${fissureRows(list.filter((f) => !f.isHard && !f.isStorm))}`
-    + `<h3>Steel Path</h3>${fissureRows(list.filter((f) => f.isHard && !f.isStorm))}`
-    + `<h3>Void Storms</h3>${fissureRows(list.filter((f) => f.isStorm))}`;
+  const byExpiry = (a, b) => Date.parse(a.expiry) - Date.parse(b.expiry);
+  const group = (title, arr) => `<h3 class="sticky-sub">${title}</h3><div class="entries-2col">${fissureRows([...arr].sort(byExpiry))}</div>`;
+  return group('Normal', list.filter((f) => !f.isHard && !f.isStorm))
+    + group('Steel Path', list.filter((f) => f.isHard && !f.isStorm))
+    + group('Void Storms', list.filter((f) => f.isStorm));
 }
 
 function rFissures(d) {
@@ -282,22 +319,32 @@ function invasionETA(inv) {
 }
 
 function rInvasions(d) {
-  const list = [...(d.invasions || [])].sort((a, b) => Number(a.completed) - Number(b.completed));
-  if (!list.length) return empty('No active invasions.');
-  return list.map((inv) => {
+  const all = d.invasions || [];
+  if (!all.length) return empty('No active invasions.');
+  const entry = (inv) => {
     const pct = Math.abs(Number(inv.completion) || 0);
     const atk = inv.attacker || {}, def = inv.defender || {};
+    const payBlock = (label, reward) => `<div><div class="entry-sub">${esc(label)}</div>${rewardHTML(reward)}</div>`;
     const rewardBlock = inv.vsInfestation
-      ? `<div class="entry-sub">Battle pay</div>${rewardHTML(def.reward)}`
-      : `<div class="entry-sub">${esc(atk.faction || 'Attacker')} battle pay</div>${rewardHTML(atk.reward)}
-         <div class="entry-sub">${esc(def.faction || 'Defender')} battle pay</div>${rewardHTML(def.reward)}`;
+      ? payBlock('Battle pay', def.reward)
+      : `<div class="pay-cols">${payBlock(`${atk.faction || 'Attacker'} battle pay`, atk.reward)}${payBlock(`${def.faction || 'Defender'} battle pay`, def.reward)}</div>`;
     return `<div class="entry">
       <div class="entry-head"><span class="entry-title">${esc(inv.node)}</span><span>${inv.completed ? '<span class="chip">Completed</span>' : timer(inv.expiry || '', '')}</span></div>
       <div class="entry-sub">${esc(inv.desc || '')}${inv.vsInfestation ? '' : ` · ${esc(atk.faction || '')} vs ${esc(def.faction || '')}`}</div>
-      ${bar(pct)}<div class="entry-sub">${pct.toFixed(1)}%${invasionETA(inv)}</div>
+      <div class="bar-line">${bar(pct)}<span class="entry-sub">${pct.toFixed(1)}%${invasionETA(inv)}</span></div>
       ${rewardBlock}
     </div>`;
-  }).join('');
+  };
+  // Active invasions first, nearest to completion first; completed ones
+  // collapse into a disclosure at the end of the list.
+  const active = all.filter((i) => !i.completed)
+    .sort((a, b) => Math.abs(Number(b.completion) || 0) - Math.abs(Number(a.completion) || 0));
+  const done = all.filter((i) => i.completed);
+  let out = active.length
+    ? `<div class="entries-2col">${active.map(entry).join('')}</div>`
+    : empty('No active invasions.');
+  if (done.length) out += `<details class="pool"><summary>Completed (${done.length})</summary>${done.map(entry).join('')}</details>`;
+  return out;
 }
 
 function rSortie(d) {
@@ -349,19 +396,31 @@ function rNightwave(d) {
   if (!nw) return empty('No Nightwave data in this feed snapshot.');
   const head = `<div class="entry-head"><span class="entry-title">${esc(humanizeTag(nw.tag)) || 'Nightwave'}</span>${timer(nw.expiry, 'season ends in ')}</div>
     <div class="entry-sub">Season ${esc(nw.season ?? '')}${nw.phase != null ? ` · Phase ${esc(nw.phase)}` : ''}</div>`;
-  const act = (c) => `<div class="entry">
+  // One timer per group: the subhead carries the group's most common expiry
+  // (the shared reset); an act expiring at a different time keeps its own.
+  const group = (title, acts, emptyMsg) => {
+    if (!acts.length) return `<h3>${title}</h3>${empty(emptyMsg)}`;
+    const counts = new Map();
+    acts.forEach((c) => { if (c.expiry) counts.set(c.expiry, (counts.get(c.expiry) || 0) + 1); });
+    let groupExpiry = '', best = 0;
+    for (const [exp, n] of counts) {
+      if (n > best || (n === best && exp < groupExpiry)) { best = n; groupExpiry = exp; }
+    }
+    const act = (c) => `<div class="entry">
       <div class="entry-head"><span class="entry-title">${esc(c.title || c.desc || '')}</span><span class="entry-sub">${num(c.reputation)} standing</span></div>
       <div class="entry-sub">${esc(c.desc || '')}</div>
-      <div class="entry-sub">${timer(c.expiry, 'ends in ')}</div>
+      ${c.expiry && c.expiry !== groupExpiry ? `<div class="entry-sub">${timer(c.expiry, 'ends in ')}</div>` : ''}
     </div>`;
+    return `<h3>${title}${groupExpiry ? ` — ${timer(groupExpiry, 'ends in ')}` : ''}</h3>${acts.map(act).join('')}`;
+  };
   const all = nw.activeChallenges || [];
   const daily = all.filter((c) => c.isDaily);
   const elite = all.filter((c) => !c.isDaily && c.isElite);
   const weekly = all.filter((c) => !c.isDaily && !c.isElite);
   return head
-    + `<h3>Daily</h3>${daily.length ? daily.map(act).join('') : empty('No daily acts.')}`
-    + `<h3>Weekly</h3>${weekly.length ? weekly.map(act).join('') : empty('No weekly acts.')}`
-    + `<h3>Elite weekly</h3>${elite.length ? elite.map(act).join('') : empty('No elite acts.')}`;
+    + group('Daily', daily, 'No daily acts.')
+    + group('Weekly', weekly, 'No weekly acts.')
+    + group('Elite weekly', elite, 'No elite acts.');
 }
 
 function rCircuit(d) {
@@ -420,8 +479,12 @@ function rCalendar(d) {
   const cal = d.calendar;
   if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
   const head = `<div class="entry-head"><span class="entry-title">1999 Calendar — ${esc(cal.season || '')}${cal.yearIteration ? `, year ${esc(cal.yearIteration)}` : ''}</span>${timer(cal.expiry, 'week ends in ')}</div>`;
-  const days = cal.days.map((day) => {
+  let lastMonth = '';
+  const days = [...cal.days].sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0)).map((day) => {
     const t = Date.parse(day.date);
+    const month = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }) : '';
+    const monthHead = month && month !== lastMonth ? `<h3>${esc(month)}</h3>` : '';
+    if (month) lastMonth = month;
     const label = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
     const evs = (day.events || []).map((ev) => {
       if (ev.challenge) return `<span class="chip">${esc(ev.type || 'To Do')}: ${esc(ev.challenge.title || '')}</span>`;
@@ -429,7 +492,7 @@ function rCalendar(d) {
       if (ev.reward) return `<span class="chip">${esc(ev.type || 'Reward')}: ${esc(displayName(ev.reward, ev.uniqueName))}</span>`;
       return `<span class="chip">${esc(ev.type || 'Event')}</span>`;
     }).join('');
-    return `<div class="row"><span class="label">${esc(label)}</span><span class="value">${evs || '<span class="entry-sub">—</span>'}</span></div>`;
+    return monthHead + `<div class="row"><span class="label">${esc(label)}</span><span class="value">${evs || '<span class="entry-sub">—</span>'}</span></div>`;
   }).join('');
   return head + days;
 }
@@ -447,6 +510,7 @@ function rFaceoff(d) {
 function rClanWeekly(d) {
   const c = d.clanWeeklyInitiative;
   if (!c) return empty('No clan weekly data in this feed snapshot.');
+  // The feed itself spells this key "rewwards" (three w's) — not a typo here.
   const rewards = (c.rewwards || []).map((r) => `<tr>
       <td class="num">${num(r.PointThreshold)}</td>
       <td>${esc(pathName(r.Reward))}</td>
@@ -473,30 +537,55 @@ function rSyndicates(d) {
 function rBounties(d) {
   const withJobs = (d.syndicateMissions || []).filter((s) => (s.jobs || []).length);
   if (!withJobs.length) return empty('No bounties listed in this feed snapshot.');
-  return withJobs.map((s) => {
-    const jobs = s.jobs.map((j) => {
-      const drops = (j.rewardPoolDrops || []);
-      const pool = drops.length
-        ? chips(drops.map((x) => `${x.item}${x.chance != null ? ` (${x.chance}%)` : ''}`))
-        : chips([...new Set(j.rewardPool || [])]);
-      const standing = (j.standingStages || []).reduce((a, b) => a + b, 0);
-      return `<div class="entry">
-        <div class="entry-head"><span class="entry-title">${esc(j.type || 'Bounty')}</span><span class="entry-sub">${timer(j.expiry, 'ends in ')}</span></div>
+  // A syndicate can contribute two job sets (two rotations); group them and
+  // label the sets instead of showing the same syndicate heading twice.
+  const bySyn = new Map();
+  withJobs.forEach((s) => {
+    if (!bySyn.has(s.syndicate)) bySyn.set(s.syndicate, []);
+    bySyn.get(s.syndicate).push(s);
+  });
+  let poolIdx = 0;
+  const parts = [];
+  for (const [syn, sets] of bySyn) {
+    const sorted = [...sets].sort((a, b) => (Date.parse(a.expiry) || 0) - (Date.parse(b.expiry) || 0));
+    sorted.forEach((s, si) => {
+      const jobs = s.jobs.map((j) => {
+        const drops = (j.rewardPoolDrops || []);
+        const pool = drops.length
+          ? chips(drops.map((x) => `${x.item}${x.chance != null ? ` (${x.chance}%)` : ''}`))
+          : chips([...new Set(j.rewardPool || [])]);
+        const standing = (j.standingStages || []).reduce((a, b) => a + b, 0);
+        const idx = poolIdx++;
+        return `<div class="entry">
+        <div class="entry-head"><span class="entry-title">${esc(j.type || 'Bounty')}</span><span class="entry-tools"><span class="entry-sub">${timer(j.expiry, 'ends in ')}</span><button type="button" class="pool-toggle" data-pool="${idx}" aria-expanded="false">Reward pool</button></span></div>
         <div class="entry-sub">${(j.enemyLevels || []).length ? `Enemy Lv ${j.enemyLevels[0]}–${j.enemyLevels[j.enemyLevels.length - 1]} · ` : ''}${standing ? `${num(standing)} standing · ` : ''}${j.minMR ? `MR ${j.minMR}+ · ` : ''}${(j.standingStages || []).length} stage(s)</div>
-        <details class="pool"><summary>Reward pool</summary>${pool}</details>
+        <div class="pool-body" data-pool-body="${idx}" hidden>${pool}</div>
       </div>`;
-    }).join('');
-    return `<h3>${esc(s.syndicate)}</h3>${jobs}`;
-  }).join('');
+      }).join('');
+      const label = sorted.length > 1 ? `${syn} — Rotation ${si + 1}` : syn;
+      parts.push(`<h3>${esc(label)}</h3><div class="entries-2col">${jobs}</div>`);
+    });
+  }
+  return parts.join('');
+}
+
+function mountBounties(el) {
+  el.querySelectorAll('.pool-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const body = el.querySelector(`[data-pool-body="${btn.dataset.pool}"]`);
+      if (!body) return;
+      body.hidden = !body.hidden;
+      btn.setAttribute('aria-expanded', String(!body.hidden));
+    });
+  });
 }
 
 function rConclave(d) {
   const list = d.conclaveChallenges || [];
   if (!list.length) return empty('No Conclave challenges in this feed snapshot.');
   const item = (c) => `<div class="entry">
-      <div class="entry-head"><span class="entry-title">${esc(c.title || '')}</span><span class="entry-sub">${num(c.standing)} standing</span></div>
+      <div class="entry-head"><span class="entry-title">${esc(c.title || '')}</span><span class="entry-sub">${num(c.standing)} standing · ${timer(c.expiry, 'ends in ')}</span></div>
       <div class="entry-sub">${esc(c.description || '')} · ${esc(c.mode || '')}</div>
-      <div class="entry-sub">${timer(c.expiry, 'ends in ')}</div>
     </div>`;
   const daily = list.filter((c) => c.daily);
   const weekly = list.filter((c) => !c.daily);
@@ -511,26 +600,36 @@ function traderWindow(t) {
   return 'Departed';
 }
 
+// A price column is rendered only when at least one row carries that price;
+// a column that would be all placeholders is omitted entirely.
 function inventoryTable(inv, priceLabel) {
   if (!(inv || []).length) return empty('No inventory published by the source for this visit.');
+  const showPrice = inv.some((it) => it.ducats != null);
+  const showCredits = inv.some((it) => it.credits != null);
   const rows = inv.map((it) => `<tr>
       <td><span class="item-cell">${itemIcon(it.thumbnail, it.uniqueName)}<span data-name-for="${esc(it.uniqueName || '')}">${esc(displayName(it.item, it.uniqueName))}</span></span></td>
-      <td class="num">${it.ducats != null ? num(it.ducats) : '—'}</td>
-      <td class="num">${it.credits != null ? num(it.credits) : '—'}</td>
+      ${showPrice ? `<td class="num">${it.ducats != null ? num(it.ducats) : '—'}</td>` : ''}
+      ${showCredits ? `<td class="num">${it.credits != null ? num(it.credits) : '—'}</td>` : ''}
     </tr>`).join('');
-  return `<div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">${esc(priceLabel)}</th><th class="num">Credits</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>Item</th>${showPrice ? `<th class="num">${esc(priceLabel)}</th>` : ''}${showCredits ? '<th class="num">Credits</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function rBaro(d) {
   const t = d.voidTrader;
   if (!t) return empty('No Void Trader data in this feed snapshot.');
-  const out = [`<div class="entry-head"><span class="entry-title">${esc(displayName(t.character, ''))}</span><span>${traderWindow(t)}</span></div>
-    <div class="entry-sub">${esc(t.location || '')}</div>`];
-  if (Date.parse(t.activation) <= Date.now()) out.push(inventoryTable(t.inventory, 'Ducats'));
-  else out.push(`<p class="note">Inventory is published when the trader arrives.</p>`);
   const others = (d.voidTraders || []).filter((x) => x.id !== t.id);
-  others.forEach((x) => out.push(row(displayName(x.character, ''), `${esc(x.location || '')} · ${traderWindow(x)}`)));
-  return out.join('');
+  const otherRows = others.map((x) => row(traderDisplayName(x.character), `${esc(x.location || '')} · ${traderWindow(x)}`));
+  const present = Date.parse(t.activation) <= Date.now() && (t.inventory || []).length > 0;
+  if (!present) {
+    // Away (or inventory unpublished): the compact summary form, same shape
+    // as the Overview highlight; the registry span drops to 1 to match.
+    return [row(traderDisplayName(t.character), `${esc(t.location || '')} · ${traderWindow(t)}`),
+      ...otherRows,
+      `<p class="note">Inventory is published when the trader arrives.</p>`].join('');
+  }
+  return [`<div class="entry-head"><span class="entry-title">${esc(traderDisplayName(t.character))}</span><span>${traderWindow(t)}</span></div>
+    <div class="entry-sub">${esc(t.location || '')}</div>`,
+  inventoryTable(t.inventory, 'Ducats'), ...otherRows].join('');
 }
 
 function rVarzia(d) {
@@ -561,38 +660,67 @@ function rPrimeAccess(d) {
   return row('Prime Access', esc(typeof p === 'string' ? p : (p.state || JSON.stringify(p))));
 }
 
-/* Flash sales carry their own search/filter controls, like fissures. */
-const flashFilter = { q: '', discountOnly: false };
+/* Flash sales carry their own search/filter/sort controls, like fissures.
+   The collapse state (flashShowAll) persists across filter changes within
+   the page session; the collapse always applies to the filtered list. */
+const flashFilter = { q: '', discountOnly: false, sort: 'discount' };
 let flashData = null;
+let flashShowAll = false;
+const FLASH_COLLAPSE = 25;
+const NINETY_DAYS_MS = 90 * 24 * 3600 * 1000;
 
-function flashRows() {
+function flashList() {
   const list = (flashData || []).filter((f) => {
     if (flashFilter.discountOnly && !f.discount) return false;
     if (flashFilter.q && !displayName(f.item, f.uniqueName).toLowerCase().includes(flashFilter.q)) return false;
     return true;
   });
+  const by = {
+    discount: (a, b) => (b.discount || 0) - (a.discount || 0) || Date.parse(a.expiry) - Date.parse(b.expiry),
+    ending: (a, b) => Date.parse(a.expiry) - Date.parse(b.expiry),
+    name: (a, b) => displayName(a.item, a.uniqueName).localeCompare(displayName(b.item, b.uniqueName)),
+  };
+  return list.sort(by[flashFilter.sort] || by.discount);
+}
+
+function flashRows() {
+  const list = flashList();
   if (!list.length) return empty('No flash sales match.');
-  const rows = list.map((f, i) => {
+  const shown = flashShowAll ? list : list.slice(0, FLASH_COLLAPSE);
+  const rows = shown.map((f, i) => {
     const price = f.premiumOverride != null ? `${num(f.premiumOverride)} plat`
       : f.regularOverride != null ? `${num(f.regularOverride)} credits` : '—';
-    // shortcut: icon lookups only for the top 24 rows (best discounts first) —
-    // one items-API search per item would hammer the API across ~155 sales.
+    // shortcut: icon lookups only for the first 24 rendered rows — one
+    // items-API search per item would hammer the API across ~155 sales.
     const icon = i < 24 ? itemIcon('', f.uniqueName) : '';
+    // Countdowns past ~90 days are meaningless ("1158d 17h"); show the date.
+    const ends = Date.parse(f.expiry) - Date.now() > NINETY_DAYS_MS
+      ? esc(fmtDateYear(f.expiry))
+      : timer(f.expiry, '');
     return `<tr>
       <td><span class="item-cell">${icon}<span data-name-for="${esc(f.uniqueName || '')}">${esc(displayName(f.item, f.uniqueName))}</span></span></td>
       <td class="num">${price}</td>
       <td class="num">${f.discount ? `−${f.discount}%` : '—'}</td>
-      <td class="num">${timer(f.expiry, '')}</td>
+      <td class="num">${ends}</td>
     </tr>`;
   }).join('');
-  return `<p class="note">${list.length} sale(s)</p>
-    <div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Price</th><th class="num">Discount</th><th class="num">Ends in</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const note = flashShowAll || list.length <= FLASH_COLLAPSE
+    ? `${list.length} sale(s)`
+    : `Showing ${FLASH_COLLAPSE} of ${list.length} sales`;
+  const toggle = list.length > FLASH_COLLAPSE
+    ? `<button type="button" class="flash-toggle" data-flash-toggle>${flashShowAll ? 'Show fewer' : `Show all ${list.length}`}</button>`
+    : '';
+  return `<p class="note">${note}</p>
+    <div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Price</th><th class="num">Discount</th><th class="num">Ends</th></tr></thead><tbody>${rows}</tbody></table></div>${toggle}`;
 }
 
 function rFlashSales(d) {
-  flashData = [...(d.flashSales || [])].sort((a, b) => (b.discount || 0) - (a.discount || 0) || Date.parse(a.expiry) - Date.parse(b.expiry));
+  flashData = [...(d.flashSales || [])];
+  const sortOpts = [['discount', 'Discount'], ['ending', 'Ending soon'], ['name', 'Name A–Z']]
+    .map(([v, label]) => `<option value="${v}"${flashFilter.sort === v ? ' selected' : ''}>${label}</option>`).join('');
   return `<div class="filters">
       <label>Search <input type="search" data-f="q" placeholder="Item name…" value="${esc(flashFilter.q)}"></label>
+      <label>Sort <select data-f="sort">${sortOpts}</select></label>
       <label class="check"><input type="checkbox" data-f="discountOnly"${flashFilter.discountOnly ? ' checked' : ''}> Discounts only</label>
     </div>
     <div class="flash-list">${flashRows()}</div>`;
@@ -601,15 +729,24 @@ function rFlashSales(d) {
 function mountFlashSales(el) {
   const q = el.querySelector('input[data-f="q"]');
   const cb = el.querySelector('input[data-f="discountOnly"]');
+  const sortSel = el.querySelector('select[data-f="sort"]');
   const update = () => {
     flashFilter.q = (q.value || '').toLowerCase();
     flashFilter.discountOnly = cb.checked;
+    if (sortSel) flashFilter.sort = sortSel.value;
     el.querySelector('.flash-list').innerHTML = flashRows();
     tickTimers();
     enrichIcons(el);
+    wireToggle();
+  };
+  const wireToggle = () => {
+    const btn = el.querySelector('[data-flash-toggle]');
+    if (btn) btn.addEventListener('click', () => { flashShowAll = !flashShowAll; update(); });
   };
   q.addEventListener('input', update);
   cb.addEventListener('change', update);
+  if (sortSel) sortSel.addEventListener('change', update);
+  wireToggle();
 }
 
 function rAcolytes(d) {
@@ -668,23 +805,25 @@ const TABS = [
 ];
 
 /* To move a section: change its `tab:` value. To reorder: move its entry.
-   To add one: append an entry with a self-contained render function. */
+   To add one: append an entry with a self-contained render function.
+   `span: 2` gives a section two grid columns on wide screens; it travels
+   with the entry, so a moved section keeps its width. */
 const SECTIONS = [
   { id: 'cycles', tab: 'overview', title: 'World Cycles', render: rCycles },
   { id: 'construction', tab: 'overview', title: 'Enemy Construction', render: rConstruction },
   { id: 'overview-traders', tab: 'overview', title: 'Traders & Deals', render: rOverviewTraders },
   { id: 'overview-daily', tab: 'overview', title: 'Daily & Weekly Highlights', render: rOverviewDaily },
 
-  { id: 'alerts', tab: 'alerts', title: 'Alerts', wide: true, render: rAlerts },
-  { id: 'events', tab: 'alerts', title: 'Events', wide: true, render: rEvents },
-  { id: 'news', tab: 'alerts', title: 'News', wide: true, render: rNews },
+  { id: 'alerts', tab: 'alerts', title: 'Alerts', span: 2, render: rAlerts },
+  { id: 'events', tab: 'alerts', title: 'Events', span: 2, render: rEvents },
+  { id: 'news', tab: 'alerts', title: 'News', render: rNews },
 
-  { id: 'fissures', tab: 'fissures', title: 'Void Fissures', wide: true, render: rFissures, mount: mountFissures },
+  { id: 'fissures', tab: 'fissures', title: 'Void Fissures', span: 2, render: rFissures, mount: mountFissures },
 
-  { id: 'invasions', tab: 'invasions', title: 'Invasions', wide: true, render: rInvasions },
+  { id: 'invasions', tab: 'invasions', title: 'Invasions', span: 2, render: rInvasions },
 
-  { id: 'sortie', tab: 'sortie', title: 'Sortie', render: rSortie },
-  { id: 'archon', tab: 'sortie', title: 'Archon Hunt', render: rArchon },
+  { id: 'sortie', tab: 'sortie', title: 'Sortie', span: 2, render: rSortie },
+  { id: 'archon', tab: 'sortie', title: 'Archon Hunt', span: 2, render: rArchon },
   { id: 'arbitration', tab: 'sortie', title: 'Arbitration', render: rArbitration },
   { id: 'kuva', tab: 'sortie', title: 'Kuva Missions', render: rKuva },
 
@@ -692,20 +831,25 @@ const SECTIONS = [
   { id: 'circuit', tab: 'weekly', title: 'The Circuit (Duviri)', render: rCircuit },
   { id: 'steelpath', tab: 'weekly', title: 'Steel Path Honors', render: rSteelPath },
   { id: 'archimedea', tab: 'weekly', title: 'Archimedea', render: rArchimedea },
-  { id: 'descendia', tab: 'weekly', title: 'Descendia', wide: true, render: rDescendia },
-  { id: 'calendar', tab: 'weekly', title: '1999 Calendar', wide: true, render: rCalendar },
+  { id: 'descendia', tab: 'weekly', title: 'Descendia', span: 2, render: rDescendia },
+  { id: 'calendar', tab: 'weekly', title: '1999 Calendar', span: 2, render: rCalendar },
   { id: 'faceoff', tab: 'weekly', title: 'Faceoff Bonus', render: rFaceoff },
   { id: 'clanweekly', tab: 'weekly', title: 'Clan Weekly Initiative', render: rClanWeekly },
 
-  { id: 'syndicates', tab: 'bounties', title: 'Syndicate Missions', wide: true, render: rSyndicates },
-  { id: 'bounties', tab: 'bounties', title: 'Bounties', wide: true, render: rBounties },
-  { id: 'conclave', tab: 'bounties', title: 'Conclave Challenges', wide: true, render: rConclave },
+  { id: 'syndicates', tab: 'bounties', title: 'Syndicate Missions', span: 2, render: rSyndicates },
+  { id: 'bounties', tab: 'bounties', title: 'Bounties', span: 2, render: rBounties, mount: mountBounties },
+  { id: 'conclave', tab: 'bounties', title: 'Conclave Challenges', render: rConclave },
 
-  { id: 'baro', tab: 'traders', title: "Void Trader — Baro Ki'Teer", wide: true, render: rBaro },
-  { id: 'varzia', tab: 'traders', title: 'Prime Resurgence — Varzia', wide: true, render: rVarzia },
+  { id: 'baro', tab: 'traders', title: "Void Trader — Baro Ki'Teer",
+    // Span follows the data, resolved at render time: the full inventory
+    // table takes 2 columns; the away summary is a compact 1-column section.
+    span: (d) => (d.voidTrader && Date.parse(d.voidTrader.activation) <= Date.now()
+      && (d.voidTrader.inventory || []).length ? 2 : 1),
+    render: rBaro },
+  { id: 'varzia', tab: 'traders', title: 'Prime Resurgence — Varzia', span: 2, render: rVarzia },
   { id: 'darvo', tab: 'traders', title: 'Darvo — Daily Deal', render: rDarvo },
   { id: 'primeaccess', tab: 'traders', title: 'Prime Access', render: rPrimeAccess },
-  { id: 'flashsales', tab: 'traders', title: 'Flash Sales', wide: true, render: rFlashSales, mount: mountFlashSales },
+  { id: 'flashsales', tab: 'traders', title: 'Flash Sales', span: 2, render: rFlashSales, mount: mountFlashSales },
 
   { id: 'acolytes', tab: 'more', title: 'Persistent Enemies (Acolytes)', render: rAcolytes },
   { id: 'simaris', tab: 'more', title: 'Synthesis (Simaris)', render: rSimaris },
@@ -722,13 +866,14 @@ const iconCache = new Map();
 function buildSkeleton() {
   const tabBar = document.getElementById('tab-bar');
   const panels = document.getElementById('panels');
-  tabBar.innerHTML = TABS.map((t, i) => `<button type="button" class="tab${i === 0 ? ' active' : ''}" data-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('');
+  tabBar.innerHTML = TABS.map((t, i) => `<button type="button" class="tab${i === 0 ? ' active' : ''}" data-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('')
+    + '<button type="button" class="tab-refresh refresh-btn">Refresh</button>';
   panels.innerHTML = TABS.map((t, i) => `<section class="tab-panel" data-panel="${esc(t.id)}"${i === 0 ? '' : ' hidden'}><div class="grid" data-grid="${esc(t.id)}"></div></section>`).join('');
   for (const s of SECTIONS) {
     const grid = panels.querySelector(`[data-grid="${s.tab}"]`);
     if (!grid) continue;
     const card = document.createElement('article');
-    card.className = 'card' + (s.wide ? ' wide' : '');
+    card.className = 'card' + (s.span === 2 ? ' span-2' : '');
     card.id = `sec-${s.id}`;
     card.innerHTML = `<h2>${esc(s.title)}</h2><div class="section-body"></div>`;
     grid.appendChild(card);
@@ -750,6 +895,7 @@ function activateTab(id) {
     if (on) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
   document.querySelectorAll('.tab-panel').forEach((p) => { p.hidden = p.dataset.panel !== id; });
+  window.scrollTo(0, 0);
 }
 
 function renderAll() {
@@ -759,7 +905,16 @@ function renderAll() {
     const body = card.querySelector('.section-body');
     try {
       body.innerHTML = state.data ? s.render(state.data) : empty('Waiting for data…');
-      if (state.data && s.mount) s.mount(card, state.data);
+      // A section whose whole content is empty-state text gets the slim
+      // is-empty card treatment automatically (see styles.css).
+      const kids = [...body.children];
+      card.classList.toggle('is-empty', kids.length > 0
+        && kids.every((k) => k.classList.contains('empty') || k.classList.contains('note')));
+      if (state.data) {
+        const sp = typeof s.span === 'function' ? s.span(state.data) : s.span;
+        card.classList.toggle('span-2', sp === 2);
+        if (s.mount) s.mount(card, state.data);
+      }
     } catch (err) {
       body.innerHTML = empty('This section failed to render.');
       console.error(`section ${s.id} failed`, err);
@@ -774,8 +929,15 @@ function tickTimers() {
   document.querySelectorAll('[data-expiry]').forEach((el) => {
     const t = Date.parse(el.dataset.expiry);
     if (!Number.isFinite(t)) { el.textContent = ''; return; }
-    el.textContent = (el.dataset.prefix || '') + fmtDur(t - now);
-    el.classList.toggle('soon', t - now > 0 && t - now < 10 * 60 * 1000);
+    const rem = t - now;
+    if (rem <= 0) {
+      el.textContent = 'Ended';
+      el.classList.remove('t-urgent', 't-soon');
+      return;
+    }
+    el.textContent = (el.dataset.prefix || '') + fmtDur(rem);
+    el.classList.toggle('t-urgent', rem < 15 * 60 * 1000);
+    el.classList.toggle('t-soon', rem >= 15 * 60 * 1000 && rem < 60 * 60 * 1000);
   });
 }
 
@@ -836,7 +998,7 @@ function boot() {
   buildSkeleton();
   const hash = (location.hash || '').replace('#', '');
   if (TABS.some((t) => t.id === hash)) activateTab(hash);
-  document.getElementById('refresh-btn').addEventListener('click', load);
+  document.querySelectorAll('.refresh-btn').forEach((b) => b.addEventListener('click', load));
   document.getElementById('retry-btn').addEventListener('click', load);
   load();
   setInterval(load, REFRESH_MS);
