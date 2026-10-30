@@ -1,0 +1,33 @@
+name: static-data
+
+# Refreshes the dashboard's reference tables (language dictionary,
+# regions, challenges) from the world state API's staticData section.
+# The fetch script validates before writing and this workflow only
+# commits when the canonical bytes actually changed, so game updates
+# and hotfix string changes land on their own and quiet weeks produce
+# no commits. Runs on main: the script and workflow themselves are
+# code and change through the normal branch flow; this job only ever
+# commits the data file it generates.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and validate the static tables
+        run: python3 tools/fetch-static-data.py static-data.json
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static-data.json
+          git diff --cached --quiet || git commit -m "Refresh static reference data"
+          git push
