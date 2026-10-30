@@ -985,13 +985,22 @@ function fitBaroInventory() {
   wrap.style.maxHeight = '';
   const grid = card.parentElement;
   if (!grid) return;
-  let rowH = card.offsetHeight;
+  let rowH = 0;
   for (const mate of grid.children) {
     if (mate !== card && mate.offsetTop === card.offsetTop) {
       rowH = Math.max(rowH, mate.offsetHeight);
     }
   }
-  const target = rowH - (card.offsetHeight - wrap.offsetHeight);
+  if (!rowH) return;
+  // Measure the card's non-table height un-stretched: with the row
+  // stretch applied, the card's height already includes the row
+  // height, so deriving the non-table part from it is circular and
+  // the target collapses back to the cap.
+  const prevAlign = card.style.alignSelf;
+  card.style.alignSelf = 'start';
+  const nonWrap = card.offsetHeight - wrap.offsetHeight;
+  card.style.alignSelf = prevAlign;
+  const target = rowH - nonWrap;
   if (target > wrap.offsetHeight) wrap.style.maxHeight = `${target}px`;
 }
 
