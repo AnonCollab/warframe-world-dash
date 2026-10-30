@@ -789,8 +789,12 @@
 
     /* ---------- weekly / scheduled sections ---------- */
 
-    const pct = arr(live.constructionProgress && live.constructionProgress.ProjectPct).length
-      ? arr(live.constructionProgress.ProjectPct) : arr(ws.ProjectPct);
+    // The raw ProjectPct is authoritative: Tenno Tracker's precomputed
+    // constructionProgress was observed serving [0, 0, 0] while the raw
+    // values in the same payload were live (2026-10-30), so the relay's
+    // field is only a fallback for a payload missing the raw array.
+    const pct = arr(ws.ProjectPct).length
+      ? arr(ws.ProjectPct) : arr(live.constructionProgress && live.constructionProgress.ProjectPct);
     out.constructionProgress = {
       fomorianProgress: (pct[0] ?? 0).toFixed(2),
       razorbackProgress: (pct[1] ?? 0).toFixed(2),
