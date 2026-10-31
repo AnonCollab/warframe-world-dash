@@ -145,12 +145,19 @@
     // Icon resolution via the Public Export image manifest snapshot:
     // feed Icon fields and challenge-definition icons are bare texture
     // paths; deck items resolve by uniqueName. Both maps carry the
-    // hashed textureLocation, served from DE's content CDN. Anything
-    // unmapped resolves to '' and the renderers show no icon.
+    // hashed textureLocation, served from DE's content CDN. The
+    // manifest snapshot covers only part of the bare paths (152 of 267
+    // challenge icons), so iconUrl falls back to browse.wf, which
+    // serves game textures by bare path; a path neither source has
+    // still 404s there and the renderers' self-removing img hides it.
     const iconTextures = obj(ref && ref.iconTextures);
     const itemIcons = obj(ref && ref.itemIcons);
     const ICON_CDN = 'https://content.warframe.com/PublicExport';
-    const iconUrl = (path) => (path && iconTextures[path] ? `${ICON_CDN}${iconTextures[path]}` : '');
+    const iconUrl = (path) => {
+      if (!path) return '';
+      if (iconTextures[path]) return `${ICON_CDN}${iconTextures[path]}`;
+      return path.startsWith('/') ? `https://browse.wf${path}` : '';
+    };
     const itemIconUrl = (uniqueName) => (uniqueName && itemIcons[uniqueName] ? `${ICON_CDN}${itemIcons[uniqueName]}` : '');
     const cleanText = (s, count) => String(s ?? '')
       .replace(/\|COUNT\|/g, count != null ? String(count) : '')
@@ -337,6 +344,7 @@
 
     const traderItem = (it) => ({
       uniqueName: it.ItemType,
+      thumbnail: itemIconUrl(it.ItemType),
       item: itemName(it.ItemType),
       ducats: Number.parseInt(String(it.PrimePrice), 10),
       credits: it.RegularPrice != null ? Number.parseInt(String(it.RegularPrice), 10) : null,
@@ -616,6 +624,7 @@
         activation: iso(rawMs(dd.Activation)),
         expiry: iso(expiryMs),
         item: itemName(dd.StoreItem),
+        thumbnail: itemIconUrl(dd.StoreItem),
         uniqueName: dd.StoreItem,
         originalPrice: dd.OriginalPrice,
         salePrice: dd.SalePrice,
