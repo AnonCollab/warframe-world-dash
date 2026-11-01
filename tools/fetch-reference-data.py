@@ -21,6 +21,11 @@ Sources:
   - browse.wf (warframe-public-export-plus): ExportTextIcons.json —
     the damage-type text icons (<DT_*> tags in game strings); only the
     DT_* entries' DIT_AUTO paths are kept.
+  - browse.wf (warframe-public-export-plus): ExportFusionBundles.json
+    — the fusion-bundle items (Endo containers the feed names only by
+    path); each entry's display name is resolved through the WFCD
+    language table and kept with its fusion-point value, so rewards
+    naming a bundle can render as the amount of Endo it grants.
   - The WARFRAME Wiki (wiki.warframe.com): the Prime Access article's
     "Current Prime Access" template — frame, weapons, accessories and
     start date. Prime Access contents exist in no feed (the raw feed
@@ -48,6 +53,7 @@ ITEMS_API = "https://api.github.com/repos/WFCD/warframe-items/contents/data/json
 ITEMS_RAW = "https://raw.githubusercontent.com/WFCD/warframe-items/master/data/json/{name}"
 EXPORT_REWARDS = "https://browse.wf/warframe-public-export-plus/ExportRewards.json"
 EXPORT_TEXT_ICONS = "https://browse.wf/warframe-public-export-plus/ExportTextIcons.json"
+EXPORT_FUSION_BUNDLES = "https://browse.wf/warframe-public-export-plus/ExportFusionBundles.json"
 WIKI_API = "https://wiki.warframe.com/api.php"
 # The index is read from the content host, not origin.warframe.com:
 # the origin host refuses GitHub-hosted runners (403 for curl and
@@ -170,6 +176,24 @@ def text_icons():
                 out[key] = path
     if len(out) < 30:
         fail("ExportTextIcons.json: damage-type icon set missing or too small")
+    return out
+
+
+def fusion_bundles(languages):
+    raw = fetch_json_url(EXPORT_FUSION_BUNDLES)
+    if not isinstance(raw, dict) or len(raw) < 30:
+        fail("ExportFusionBundles.json: table missing or suspiciously small")
+    out = {}
+    for unique_name, entry in raw.items():
+        if not isinstance(entry, dict):
+            continue
+        points = entry.get("fusionPoints")
+        name_entry = languages.get(entry.get("name") or "")
+        name = name_entry.get("value") if isinstance(name_entry, dict) else None
+        if isinstance(points, (int, float)) and points > 0 and name:
+            out[unique_name] = {"name": name, "points": points}
+    if len(out) < 30:
+        fail("ExportFusionBundles.json: named bundle set missing or too small")
     return out
 
 
@@ -345,6 +369,7 @@ def main():
     if len(targets) < 7:
         fail("languages.json: synthesis research targets not found")
     out["simarisTargets"] = targets
+    out["fusionBundles"] = fusion_bundles(languages)
 
     out["textIcons"] = text_icons()
     out["primeAccess"] = prime_access()
