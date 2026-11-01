@@ -175,10 +175,16 @@
       if (hit != null) return hit;
       return /\/Lotus\/Language\//i.test(key) || key.startsWith('/') ? humanize(key) : key;
     };
-    // An item path -> display name: the payload's own resolved items
-    // first, then the language table, then a humanized tail.
+    // An item path -> display name: fusion bundles first (they are
+    // Endo containers — DE's export names them "Endo" and carries the
+    // amount, so a bundle reward reads as what it grants), then the
+    // payload's own resolved items, then the language table, then a
+    // humanized tail.
+    const fusionBundles = obj(ref && ref.fusionBundles);
     const itemName = (path) => {
       if (!path) return '';
+      const fb = fusionBundles[path] || fusionBundles[path.replace('/StoreItems/', '/')];
+      if (fb && fb.points) return `${Number(fb.points).toLocaleString('en-US')} ${fb.name || 'Endo'}`;
       const r = resolved[path];
       if (r && r.name) return r.name;
       return langStr(path);
