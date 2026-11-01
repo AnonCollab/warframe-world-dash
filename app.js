@@ -509,31 +509,142 @@ function rDescendia(d) {
     <div class="table-wrap"><table><thead><tr><th class="num">#</th><th>Type</th><th>Challenge</th><th>Auras</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
+/* The 1999 calendar renders three ways while Tacusin picks a layout
+   (A: month tabs over the day list, B: month grid, C: stacked months).
+   All three share the head, the month grouping and the event chips —
+   challenge chips carry the objective text the translator resolved
+   (e.g. "Even the Odds — Kill 250 Enemies"). The loser variants and
+   this note come out when he decides. */
+function calHead(cal) {
+  return `<div class="entry-head"><span class="entry-title">1999 Calendar — ${esc(cal.season || '')}${cal.yearIteration ? `, year ${esc(cal.yearIteration)}` : ''}</span>${timer(cal.expiry, 'week ends in ')}</div>`;
+}
+
+// Days whose events list is empty carry nothing in any other field
+// (checked against the feed shape: a day is only {date, events}), so
+// they are omitted rather than rendered as bare rows. Returns the
+// season's event days grouped by month, in date order.
+function calMonths(cal) {
+  const eventDays = [...(cal.days || [])].filter((day) => (day.events || []).length)
+    .sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0));
+  const months = [];
+  for (const day of eventDays) {
+    const t = Date.parse(day.date);
+    if (!Number.isFinite(t)) continue;
+    const dt = new Date(t);
+    const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
+    let m = months[months.length - 1];
+    if (!m || m.key !== key) {
+      m = { key, name: dt.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }), year: dt.getUTCFullYear(), month: dt.getUTCMonth(), days: [] };
+      months.push(m);
+    }
+    m.days.push(day);
+  }
+  return months;
+}
+
+function calChip(ev) {
+  const withDesc = (label, info) => `<span class="chip">${esc(label)}: ${imgTag(info.icon, ' class="dt-icon"')}${richText(info.title || '')}${info.description ? ` — ${richText(info.description)}` : ''}</span>`;
+  if (ev.challenge) return withDesc(ev.type || 'To Do', ev.challenge);
+  if (ev.upgrade) return withDesc('Override', ev.upgrade);
+  if (ev.reward) return `<span class="chip">${esc(ev.type || 'Reward')}: ${esc(displayName(ev.reward, ev.uniqueName))}</span>`;
+  return `<span class="chip">${esc(ev.type || 'Event')}</span>`;
+}
+
+function calDayRow(day) {
+  const t = Date.parse(day.date);
+  const label = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
+  const evs = (day.events || []).map(calChip).join('');
+  return `<div class="row"><span class="label">${esc(label)}</span><span class="value">${evs || '<span class="entry-sub">—</span>'}</span></div>`;
+}
+
+// The month a season is "in" right now, approximated by mapping the
+// real season week's elapsed fraction onto the season's month span.
+// A view default only (which tab opens), not a claim about the game's
+// own current-day logic.
+function calCurrentMonthKey(cal, months) {
+  const act = Date.parse(cal.activation), exp = Date.parse(cal.expiry);
+  if (!months.length) return '';
+  if (!Number.isFinite(act) || !Number.isFinite(exp) || exp <= act) return months[0].key;
+  const frac = Math.min(0.999, Math.max(0, (Date.now() - act) / (exp - act)));
+  const first = months[0], last = months[months.length - 1];
+  const spanStart = Date.UTC(first.year, first.month, 1);
+  const spanEnd = Date.UTC(last.year, last.month + 1, 1);
+  const mapped = new Date(spanStart + frac * (spanEnd - spanStart));
+  const key = `${mapped.getUTCFullYear()}-${String(mapped.getUTCMonth() + 1).padStart(2, '0')}`;
+  return months.some((m) => m.key === key) ? key : months[0].key;
+}
+
+function calTabBar(months, currentKey) {
+  return `<div class="cal-tabs">${months.map((m) => `<button type="button" class="cal-tab${m.key === currentKey ? ' active' : ''}" data-cal-tab="${esc(m.key)}">${esc(m.name)}</button>`).join('')}</div>`;
+}
+
+/* C: stacked months with jump links (the original layout, evolved). */
 function rCalendar(d) {
   const cal = d.calendar;
   if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
-  const head = `<div class="entry-head"><span class="entry-title">1999 Calendar — ${esc(cal.season || '')}${cal.yearIteration ? `, year ${esc(cal.yearIteration)}` : ''}</span>${timer(cal.expiry, 'week ends in ')}</div>`;
-  let lastMonth = '';
-  // Days whose events list is empty carry nothing in any other field
-  // (checked against the feed shape: a day is only {date, events}), so
-  // they are omitted rather than rendered as a bare "—" row.
-  const eventDays = [...cal.days].filter((day) => (day.events || []).length);
-  if (!eventDays.length) return head + empty('No calendar events in this feed snapshot.');
-  const days = eventDays.sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0)).map((day) => {
-    const t = Date.parse(day.date);
-    const month = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }) : '';
-    const monthHead = month && month !== lastMonth ? `<h3>${esc(month)}</h3>` : '';
-    if (month) lastMonth = month;
-    const label = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
-    const evs = (day.events || []).map((ev) => {
-      if (ev.challenge) return `<span class="chip">${esc(ev.type || 'To Do')}: ${imgTag(ev.challenge.icon, ' class="dt-icon"')}${richText(ev.challenge.title || '')}</span>`;
-      if (ev.upgrade) return `<span class="chip">Override: ${imgTag(ev.upgrade.icon, ' class="dt-icon"')}${richText(ev.upgrade.title || '')}</span>`;
-      if (ev.reward) return `<span class="chip">${esc(ev.type || 'Reward')}: ${esc(displayName(ev.reward, ev.uniqueName))}</span>`;
-      return `<span class="chip">${esc(ev.type || 'Event')}</span>`;
+  const months = calMonths(cal);
+  if (!months.length) return calHead(cal) + empty('No calendar events in this feed snapshot.');
+  const jump = `<div class="cal-jump">Jump to: ${months.map((m) => `<a href="#calc-${esc(m.key)}">${esc(m.name)}</a>`).join(' · ')}</div>`;
+  const blocks = months.map((m) => `<div class="cal-month" id="calc-${esc(m.key)}"><h3>${esc(m.name)}</h3>${m.days.map(calDayRow).join('')}</div>`).join('');
+  return calHead(cal) + jump + blocks;
+}
+
+/* A: one month at a time over the same day list, via month tabs. */
+function rCalendarTabs(d) {
+  const cal = d.calendar;
+  if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
+  const months = calMonths(cal);
+  if (!months.length) return calHead(cal) + empty('No calendar events in this feed snapshot.');
+  const current = calCurrentMonthKey(cal, months);
+  const blocks = months.map((m) => `<div data-cal-block="${esc(m.key)}"${m.key === current ? '' : ' hidden'}>${m.days.map(calDayRow).join('')}</div>`).join('');
+  return calHead(cal) + `<div data-cal>${calTabBar(months, current)}${blocks}</div>`;
+}
+
+/* B: a true month grid; event days carry markers, and the selected
+   day's full event rows show beneath the grid. */
+function rCalendarGrid(d) {
+  const cal = d.calendar;
+  if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
+  const months = calMonths(cal);
+  if (!months.length) return calHead(cal) + empty('No calendar events in this feed snapshot.');
+  const current = calCurrentMonthKey(cal, months);
+  const blocks = months.map((m) => {
+    const byDate = new Map(m.days.map((day) => [String(day.date).slice(0, 10), day]));
+    const firstDow = new Date(Date.UTC(m.year, m.month, 1)).getUTCDay();
+    const dim = new Date(Date.UTC(m.year, m.month + 1, 0)).getUTCDate();
+    let selectedIso = m.days[0] ? String(m.days[0].date).slice(0, 10) : '';
+    if (m.key === current) {
+      const act = Date.parse(cal.activation), exp = Date.parse(cal.expiry);
+      if (Number.isFinite(act) && Number.isFinite(exp) && exp > act) {
+        const frac = Math.min(0.999, Math.max(0, (Date.now() - act) / (exp - act)));
+        const spanStart = Date.UTC(months[0].year, months[0].month, 1);
+        const spanEnd = Date.UTC(months[months.length - 1].year, months[months.length - 1].month + 1, 1);
+        const iso = new Date(spanStart + frac * (spanEnd - spanStart)).toISOString().slice(0, 10);
+        if (byDate.has(iso)) selectedIso = iso;
+      }
+    }
+    const cells = [];
+    for (let i = 0; i < firstDow; i++) cells.push('<span class="cal-cell blank"></span>');
+    for (let dom = 1; dom <= dim; dom++) {
+      const iso = `${m.key}-${String(dom).padStart(2, '0')}`;
+      const day = byDate.get(iso);
+      if (!day) { cells.push(`<span class="cal-cell">${dom}</span>`); continue; }
+      const marks = (day.events || []).map((ev) => {
+        if (ev.challenge) return imgTag(ev.challenge.icon, ' class="cal-mk"') || '<span class="cal-dot ch"></span>';
+        if (ev.upgrade) return '<span class="cal-dot up"></span>';
+        if (ev.reward) return '<span class="cal-dot rw"></span>';
+        return '<span class="cal-dot"></span>';
+      }).join('');
+      cells.push(`<button type="button" class="cal-cell has-ev${iso === selectedIso ? ' sel' : ''}" data-cal-day="${esc(iso)}"><span class="cal-dom">${dom}</span><span class="cal-marks">${marks}</span></button>`);
+    }
+    const details = m.days.map((day) => {
+      const iso = String(day.date).slice(0, 10);
+      return `<div data-cal-detail="${esc(iso)}"${iso === selectedIso ? '' : ' hidden'}>${calDayRow(day)}</div>`;
     }).join('');
-    return monthHead + `<div class="row"><span class="label">${esc(label)}</span><span class="value">${evs || '<span class="entry-sub">—</span>'}</span></div>`;
+    const dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((s) => `<span class="cal-dow">${s}</span>`).join('');
+    return `<div data-cal-block="${esc(m.key)}"${m.key === current ? '' : ' hidden'}><div class="cal-grid">${dow}${cells.join('')}</div>${details}</div>`;
   }).join('');
-  return head + days;
+  return calHead(cal) + `<div data-cal>${calTabBar(months, current)}${blocks}</div>`;
 }
 
 function rFaceoff(d) {
@@ -905,7 +1016,9 @@ const SECTIONS = [
   { id: 'steelpath', tab: 'weekly', title: 'Steel Path Honors', render: rSteelPath },
   { id: 'archimedea', tab: 'weekly', title: 'Archimedea', render: rArchimedea },
   { id: 'descendia', tab: 'weekly', title: 'Descendia', span: 2, render: rDescendia },
-  { id: 'calendar', tab: 'weekly', title: '1999 Calendar', span: 2, render: rCalendar },
+  { id: 'calendar-tabs', tab: 'weekly', title: '1999 Calendar (A · Tabs)', span: 2, render: rCalendarTabs },
+  { id: 'calendar-grid', tab: 'weekly', title: '1999 Calendar (B · Grid)', span: 2, render: rCalendarGrid },
+  { id: 'calendar', tab: 'weekly', title: '1999 Calendar (C · Stacked)', span: 2, render: rCalendar },
   { id: 'faceoff', tab: 'weekly', title: 'Faceoff Bonus', render: rFaceoff },
   { id: 'clanweekly', tab: 'weekly', title: 'Clan Weekly Initiative', render: rClanWeekly },
 
@@ -1162,6 +1275,27 @@ function boot() {
   if (TABS.some((t) => t.id === hash)) activateTab(hash);
   document.querySelectorAll('.refresh-btn').forEach((b) => b.addEventListener('click', load));
   document.getElementById('retry-btn').addEventListener('click', load);
+  // Calendar variant A/B interactions: month tabs and grid day
+  // selection are scoped to the card that contains them.
+  document.addEventListener('click', (e) => {
+    const tabBtn = e.target.closest('[data-cal-tab]');
+    if (tabBtn) {
+      const wrap = tabBtn.closest('[data-cal]');
+      if (!wrap) return;
+      const key = tabBtn.dataset.calTab;
+      wrap.querySelectorAll('[data-cal-tab]').forEach((b) => b.classList.toggle('active', b === tabBtn));
+      wrap.querySelectorAll('[data-cal-block]').forEach((bl) => { bl.hidden = bl.dataset.calBlock !== key; });
+      return;
+    }
+    const cell = e.target.closest('[data-cal-day]');
+    if (cell) {
+      const block = cell.closest('[data-cal-block]');
+      if (!block) return;
+      const key = cell.dataset.calDay;
+      block.querySelectorAll('[data-cal-day]').forEach((c) => c.classList.toggle('sel', c === cell));
+      block.querySelectorAll('[data-cal-detail]').forEach((r) => { r.hidden = r.dataset.calDetail !== key; });
+    }
+  });
   window.addEventListener('resize', queueBaroFit);
   load();
   setInterval(load, REFRESH_MS);
