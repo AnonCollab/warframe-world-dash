@@ -559,7 +559,7 @@ function rCalendar(d) {
       return `<div class="cal-ev">${imgTag(c.icon, ' class="cal-mk"') || '<span class="cal-dot ch"></span>'}<span>${richText(c.title || '')}${c.description ? `<span class="cal-obj">${richText(c.description)}</span>` : ''}</span></div>`;
     }
     if (ev.upgrade) return `<div class="cal-ev"><span class="cal-dot up"></span><span>${richText(ev.upgrade.title || '')}</span></div>`;
-    if (ev.reward) return `<div class="cal-ev"><span class="cal-dot rw"></span><span>${esc(displayName(ev.reward, ev.uniqueName))}</span></div>`;
+    if (ev.reward) return `<div class="cal-ev"><span class="cal-dot rw"></span><span>${esc(displayName(ev.reward, ev.uniqueName))}${ev.description ? `<span class="cal-obj">${esc(ev.description)}</span>` : ''}</span></div>`;
     return `<div class="cal-ev"><span class="cal-dot"></span><span>${esc(ev.type || 'Event')}</span></div>`;
   };
   const blocks = months.map((m) => {
