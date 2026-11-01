@@ -23,9 +23,11 @@ Sources:
     DT_* entries' DIT_AUTO paths are kept.
   - browse.wf (warframe-public-export-plus): ExportFusionBundles.json
     — the fusion-bundle items (Endo containers the feed names only by
-    path); each entry's display name is resolved through the WFCD
-    language table and kept with its fusion-point value, so rewards
-    naming a bundle can render as the amount of Endo it grants.
+    path); each entry's display name is resolved through DE's own
+    language dictionary (dict.en.json, the same file fetch-static-
+    data.py snapshots) and kept with its fusion-point value, so
+    rewards naming a bundle can render as the amount it grants. (The
+    WFCD language table does not carry these entries' name keys.)
   - The WARFRAME Wiki (wiki.warframe.com): the Prime Access article's
     "Current Prime Access" template — frame, weapons, accessories and
     start date. Prime Access contents exist in no feed (the raw feed
@@ -54,6 +56,7 @@ ITEMS_RAW = "https://raw.githubusercontent.com/WFCD/warframe-items/master/data/j
 EXPORT_REWARDS = "https://browse.wf/warframe-public-export-plus/ExportRewards.json"
 EXPORT_TEXT_ICONS = "https://browse.wf/warframe-public-export-plus/ExportTextIcons.json"
 EXPORT_FUSION_BUNDLES = "https://browse.wf/warframe-public-export-plus/ExportFusionBundles.json"
+EXPORT_DICT = "https://browse.wf/warframe-public-export-plus/dict.en.json"
 WIKI_API = "https://wiki.warframe.com/api.php"
 # The index is read from the content host, not origin.warframe.com:
 # the origin host refuses GitHub-hosted runners (403 for curl and
@@ -179,18 +182,21 @@ def text_icons():
     return out
 
 
-def fusion_bundles(languages):
+def fusion_bundles():
     raw = fetch_json_url(EXPORT_FUSION_BUNDLES)
     if not isinstance(raw, dict) or len(raw) < 30:
         fail("ExportFusionBundles.json: table missing or suspiciously small")
+    dictionary = fetch_json_url(EXPORT_DICT)
+    if not isinstance(dictionary, dict) or len(dictionary) < 10000:
+        fail("dict.en.json: dictionary missing or suspiciously small")
     out = {}
     for unique_name, entry in raw.items():
         if not isinstance(entry, dict):
             continue
         points = entry.get("fusionPoints")
-        name_entry = languages.get(entry.get("name") or "")
-        name = name_entry.get("value") if isinstance(name_entry, dict) else None
-        if isinstance(points, (int, float)) and points > 0 and name:
+        name = dictionary.get(entry.get("name") or "")
+        if isinstance(points, (int, float)) and points > 0 \
+                and isinstance(name, str) and name:
             out[unique_name] = {"name": name, "points": points}
     if len(out) < 30:
         fail("ExportFusionBundles.json: named bundle set missing or too small")
@@ -369,7 +375,7 @@ def main():
     if len(targets) < 7:
         fail("languages.json: synthesis research targets not found")
     out["simarisTargets"] = targets
-    out["fusionBundles"] = fusion_bundles(languages)
+    out["fusionBundles"] = fusion_bundles()
 
     out["textIcons"] = text_icons()
     out["primeAccess"] = prime_access()
