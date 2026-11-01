@@ -175,18 +175,34 @@
       if (hit != null) return hit;
       return /\/Lotus\/Language\//i.test(key) || key.startsWith('/') ? humanize(key) : key;
     };
-    // An item path -> display name: fusion bundles first (they are
-    // Endo containers — DE's export names them "Endo" and carries the
-    // amount, so a bundle reward reads as what it grants), then the
-    // payload's own resolved items, then the language table, then a
+    // An item path -> display name. Order: fusion bundles (Endo
+    // containers — DE's export names them "Endo" and carries the
+    // amount, so a bundle reward reads as what it grants); the 1999
+    // calendar items, whose names live only in /Lotus/Language/1999/
+    // keys mirroring the item's file name; the payload's own resolved
+    // items; the WFCD item-name map (keyed without the "/StoreItems"
+    // segment, so both forms are tried); the language table; a
     // humanized tail.
     const fusionBundles = obj(ref && ref.fusionBundles);
+    const itemNames = obj(ref && ref.itemNames);
+    const cal99 = (path) => {
+      const base = String(path).split('/').pop();
+      const name = lang(`/Lotus/Language/1999/${base}Name`);
+      if (!name) return null;
+      return { name: cleanText(name), description: cleanText(lang(`/Lotus/Language/1999/${base}Desc`) ?? '') };
+    };
     const itemName = (path) => {
       if (!path) return '';
       const fb = fusionBundles[path] || fusionBundles[path.replace('/StoreItems/', '/')];
       if (fb && fb.points) return `${Number(fb.points).toLocaleString('en-US')} ${fb.name || 'Endo'}`;
+      const c99 = cal99(path);
+      if (c99) return c99.name;
       const r = resolved[path];
       if (r && r.name) return r.name;
+      const inm = itemNames[path] || itemNames[path.replace('/StoreItems/', '/')];
+      // WFCD names recipe stubs just "Blueprint", which says less
+      // than the humanized tail ("Weapon Utility Unlocker Blueprint").
+      if (inm && inm !== 'Blueprint') return cleanText(inm).replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim();
       return langStr(path);
     };
     const nodeName = (id) => {
@@ -273,7 +289,6 @@
     // Rarity-tiered deck entries (no probability) keep their tier and
     // a null chance. Jobs whose deck the tables don't carry keep
     // empty pools.
-    const itemNames = obj(ref.itemNames);
     const dropName = (p) => itemNames[p] ?? itemName(p);
     const rarityFor = (chance) => (chance < 1 ? 'Legendary' : chance < 10 ? 'Rare' : chance < 32 ? 'Uncommon' : 'Common');
     const bountyPool = (j) => {
@@ -1023,7 +1038,7 @@
       const cal = arr(ws.KnownCalendarSeasons)[0];
       if (cal) {
         const dayEvent = (ev) => {
-          const e = { type: { CET_CHALLENGE: 'To Do', CET_UPGRADE: 'Override', CET_REWARD: 'Big Prize!', CET_PLOT: 'Birthday' }[ev.type] ?? humanize(ev.type) };
+          const e = { type: { CET_CHALLENGE: 'To Do', CET_UPGRADE: 'Hex Override', CET_REWARD: 'Prize', CET_PLOT: 'Hex Birthday' }[ev.type] ?? humanize(ev.type) };
           const describe = (path) => {
             const info = obj(challenges[path]);
             return {
@@ -1034,7 +1049,12 @@
           };
           if (ev.challenge) e.challenge = describe(ev.challenge);
           if (ev.upgrade) e.upgrade = describe(ev.upgrade);
-          if (ev.reward) { e.reward = itemName(ev.reward); e.uniqueName = ev.reward; }
+          if (ev.reward) {
+            e.reward = itemName(ev.reward);
+            e.uniqueName = ev.reward;
+            const c99 = cal99(ev.reward);
+            if (c99 && c99.description) e.description = c99.description;
+          }
           return e;
         };
         out.calendar = {
