@@ -279,11 +279,12 @@ h3 .timer, .sticky-sub .timer { text-transform: none; }
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
 }
 .cal-cell.blank { background: transparent; }
-button.cal-cell { cursor: pointer; font: inherit; text-align: left; }
-.cal-cell.has-ev { border-color: var(--card-edge); color: var(--text); }
-.cal-cell.sel { border-color: var(--accent); }
-.cal-marks { display: flex; gap: 3px; align-items: center; min-height: 14px; }
-.cal-mk { width: 14px; height: 14px; object-fit: contain; }
+.cal-cell.has-ev { border-color: var(--card-edge); color: var(--text); min-height: 86px; }
+.cal-dom { font-size: 12px; color: var(--text-dim); }
+.cal-ev { display: flex; gap: 4px; align-items: flex-start; font-size: 11.5px; line-height: 1.3; }
+.cal-ev .cal-dot { margin-top: 3px; flex: none; }
+.cal-obj { display: block; color: var(--text-dim); font-size: 11px; }
+.cal-mk { width: 15px; height: 15px; object-fit: contain; flex: none; margin-top: 1px; }
 .cal-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); display: inline-block; }
 .cal-dot.ch { background: var(--accent-cool); }
 .cal-dot.up { background: var(--accent); }
