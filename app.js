@@ -509,13 +509,13 @@ function rDescendia(d) {
     <div class="table-wrap"><table><thead><tr><th class="num">#</th><th>Type</th><th>Challenge</th><th>Auras</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-/* The 1999 calendar renders three ways while Tacusin picks a layout
-   (A: month tabs over the day list, B: month grid, C: stacked months).
-   All three share the head and the month grouping, and challenge
-   entries carry the objective text the translator resolved (e.g.
-   "Even the Odds — Kill 250 Enemies") — in the list chips for A/C,
-   inside the day cells for B. The loser variants and this note come
-   out when he decides. */
+/* The 1999 calendar: a month grid with month tabs. Each event day's
+   icon, text and objective sit inside its cell (challenge objectives
+   are the text the translator resolved, e.g. "Kill 250 Enemies").
+   Months always open on the first month — players progress through
+   the season at their own pace, so there is no real-time "current"
+   month to default to. */
+
 function calHead(cal) {
   return `<div class="entry-head"><span class="entry-title">1999 Calendar — ${esc(cal.season || '')}${cal.yearIteration ? `, year ${esc(cal.yearIteration)}` : ''}</span>${timer(cal.expiry, 'week ends in ')}</div>`;
 }
@@ -543,69 +543,11 @@ function calMonths(cal) {
   return months;
 }
 
-function calChip(ev) {
-  const withDesc = (label, info) => `<span class="chip">${esc(label)}: ${imgTag(info.icon, ' class="dt-icon"')}${richText(info.title || '')}${info.description ? ` — ${richText(info.description)}` : ''}</span>`;
-  if (ev.challenge) return withDesc(ev.type || 'To Do', ev.challenge);
-  if (ev.upgrade) return withDesc('Override', ev.upgrade);
-  if (ev.reward) return `<span class="chip">${esc(ev.type || 'Reward')}: ${esc(displayName(ev.reward, ev.uniqueName))}</span>`;
-  return `<span class="chip">${esc(ev.type || 'Event')}</span>`;
-}
-
-function calDayRow(day) {
-  const t = Date.parse(day.date);
-  const label = Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
-  const evs = (day.events || []).map(calChip).join('');
-  return `<div class="row"><span class="label">${esc(label)}</span><span class="value">${evs || '<span class="entry-sub">—</span>'}</span></div>`;
-}
-
-// The month a season is "in" right now, approximated by mapping the
-// real season week's elapsed fraction onto the season's month span.
-// A view default only (which tab opens), not a claim about the game's
-// own current-day logic.
-function calCurrentMonthKey(cal, months) {
-  const act = Date.parse(cal.activation), exp = Date.parse(cal.expiry);
-  if (!months.length) return '';
-  if (!Number.isFinite(act) || !Number.isFinite(exp) || exp <= act) return months[0].key;
-  const frac = Math.min(0.999, Math.max(0, (Date.now() - act) / (exp - act)));
-  const first = months[0], last = months[months.length - 1];
-  const spanStart = Date.UTC(first.year, first.month, 1);
-  const spanEnd = Date.UTC(last.year, last.month + 1, 1);
-  const mapped = new Date(spanStart + frac * (spanEnd - spanStart));
-  const key = `${mapped.getUTCFullYear()}-${String(mapped.getUTCMonth() + 1).padStart(2, '0')}`;
-  return months.some((m) => m.key === key) ? key : months[0].key;
-}
-
 function calTabBar(months, currentKey) {
   return `<div class="cal-tabs">${months.map((m) => `<button type="button" class="cal-tab${m.key === currentKey ? ' active' : ''}" data-cal-tab="${esc(m.key)}">${esc(m.name)}</button>`).join('')}</div>`;
 }
 
-/* C: stacked months with jump links (the original layout, evolved). */
 function rCalendar(d) {
-  const cal = d.calendar;
-  if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
-  const months = calMonths(cal);
-  if (!months.length) return calHead(cal) + empty('No calendar events in this feed snapshot.');
-  const jump = `<div class="cal-jump">Jump to: ${months.map((m) => `<a href="#calc-${esc(m.key)}">${esc(m.name)}</a>`).join(' · ')}</div>`;
-  const blocks = months.map((m) => `<div class="cal-month" id="calc-${esc(m.key)}"><h3>${esc(m.name)}</h3>${m.days.map(calDayRow).join('')}</div>`).join('');
-  return calHead(cal) + jump + blocks;
-}
-
-/* A: one month at a time over the same day list, via month tabs. */
-function rCalendarTabs(d) {
-  const cal = d.calendar;
-  if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
-  const months = calMonths(cal);
-  if (!months.length) return calHead(cal) + empty('No calendar events in this feed snapshot.');
-  const current = calCurrentMonthKey(cal, months);
-  const blocks = months.map((m) => `<div data-cal-block="${esc(m.key)}"${m.key === current ? '' : ' hidden'}>${m.days.map(calDayRow).join('')}</div>`).join('');
-  return calHead(cal) + `<div data-cal>${calTabBar(months, current)}${blocks}</div>`;
-}
-
-/* B: a true month grid with each event day's icon, text and
-   objective inside the cell itself. Months always open on the first
-   month — players progress through the season at their own pace, so
-   there is no real-time "current" month to default to. */
-function rCalendarGrid(d) {
   const cal = d.calendar;
   if (!cal || !(cal.days || []).length) return empty('No 1999 calendar in this feed snapshot.');
   const months = calMonths(cal);
@@ -1008,9 +950,7 @@ const SECTIONS = [
   { id: 'steelpath', tab: 'weekly', title: 'Steel Path Honors', render: rSteelPath },
   { id: 'archimedea', tab: 'weekly', title: 'Archimedea', render: rArchimedea },
   { id: 'descendia', tab: 'weekly', title: 'Descendia', span: 2, render: rDescendia },
-  { id: 'calendar-tabs', tab: 'weekly', title: '1999 Calendar (A · Tabs)', span: 2, render: rCalendarTabs },
-  { id: 'calendar-grid', tab: 'weekly', title: '1999 Calendar (B · Grid)', span: 2, render: rCalendarGrid },
-  { id: 'calendar', tab: 'weekly', title: '1999 Calendar (C · Stacked)', span: 2, render: rCalendar },
+  { id: 'calendar', tab: 'weekly', title: '1999 Calendar', span: 2, render: rCalendar },
   { id: 'faceoff', tab: 'weekly', title: 'Faceoff Bonus', render: rFaceoff },
   { id: 'clanweekly', tab: 'weekly', title: 'Clan Weekly Initiative', render: rClanWeekly },
 
@@ -1267,8 +1207,7 @@ function boot() {
   if (TABS.some((t) => t.id === hash)) activateTab(hash);
   document.querySelectorAll('.refresh-btn').forEach((b) => b.addEventListener('click', load));
   document.getElementById('retry-btn').addEventListener('click', load);
-  // Calendar variant month tabs (A and B) are scoped to the card
-  // that contains them.
+  // The calendar's month tabs are scoped to their own card.
   document.addEventListener('click', (e) => {
     const tabBtn = e.target.closest('[data-cal-tab]');
     if (!tabBtn) return;
