@@ -12,8 +12,11 @@ Sources:
   - browse.wf (warframe-public-export-plus): ExportRewards.json — the
     reward decks, keyed by the exact deck path the live feed's jobs
     carry. Only the MissionDecks decks are kept.
-  - WFCD/warframe-items: item display names (uniqueName -> name),
-    reduced here to just the paths those decks can drop.
+  - WFCD/warframe-items: item display names (uniqueName -> name).
+    The full map is kept (about twenty thousand items): feed item
+    paths reach well beyond the bounty decks — calendar prizes,
+    alert and invasion rewards — and every one of them deserves its
+    real name rather than a humanized path.
   - WFCD/warframe-worldstate-data: sortieData, steelPath, conclaveData,
     synthTargets, persistentEnemyData, upgradeTypes, and languages.json
     (only its synthesis research-target entries are kept — the full
@@ -137,8 +140,9 @@ def usable_name(item):
 
 def item_names(decks):
     # warframe-items uniqueNames are the deck paths with the
-    # "/StoreItems" segment removed; resolve under both forms and keep
-    # only the names for paths these decks can actually drop.
+    # "/StoreItems" segment removed; the deck resolution below stays
+    # as a validation that the map covers what the decks can drop,
+    # but the map itself is now kept whole (see the header note).
     needed = {e["type"] for rotations in decks.values()
               for r in rotations for e in r}
     listing = fetch_json_url(ITEMS_API)
@@ -156,15 +160,12 @@ def item_names(decks):
                     by_unique[item["uniqueName"]] = hit
     if len(by_unique) < 10000:
         fail(f"warframe-items: only {len(by_unique)} named items parsed")
-    out = {}
-    for path in needed:
-        hit = by_unique.get(path) or by_unique.get(
-            path.replace("/StoreItems/", "/", 1))
-        if hit:
-            out[path] = hit
-    if len(out) < 1000:
-        fail(f"warframe-items: only {len(out)} deck item names resolved")
-    return out
+    resolved = sum(1 for path in needed
+                   if by_unique.get(path) or by_unique.get(
+                       path.replace("/StoreItems/", "/", 1)))
+    if resolved < 1000:
+        fail(f"warframe-items: only {resolved} deck item names resolved")
+    return by_unique
 
 
 def text_icons():
