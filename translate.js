@@ -203,6 +203,10 @@
       // WFCD names recipe stubs just "Blueprint", which says less
       // than the humanized tail ("Weapon Utility Unlocker Blueprint").
       if (inm && inm !== 'Blueprint') return cleanText(inm).replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim();
+      // Credit pickups carry their amount in the path itself
+      // ("50000Credits") and have no name entry anywhere.
+      const credits = /^(\d+)Credits$/.exec(String(path).split('/').pop() || '');
+      if (credits) return `${Number(credits[1]).toLocaleString('en-US')} Credits`;
       return langStr(path);
     };
     const nodeName = (id) => {
@@ -1104,7 +1108,14 @@
           week: cw.WeekCount,
           bonusRegion: langStr(cw.BonusRegion),
           regionUniqueName: cw.BonusRegion,
-          rewwards: arr(cw.Rewards),
+          // Reward names resolve here, through itemName, like every
+          // other section — the renderer used to humanize the raw
+          // paths itself, which is how Aya rendered as "Schism Key".
+          rewwards: arr(cw.Rewards).map((r) => ({
+            ...r,
+            name: itemName(r && r.Reward),
+            uniqueName: r && r.Reward,
+          })),
         };
       }
     }
