@@ -597,7 +597,7 @@ function rClanWeekly(d) {
   // The feed itself spells this key "rewwards" (three w's) — not a typo here.
   const rewards = (c.rewwards || []).map((r) => `<tr>
       <td class="num">${num(r.PointThreshold)}</td>
-      <td>${esc(pathName(r.Reward))}</td>
+      <td>${esc(displayName(r.name, r.uniqueName || r.Reward))}</td>
       <td class="num">${num(r.ItemCount)}</td>
       <td>${r.RewardClaimed ? 'Claimed' : 'Unclaimed'}</td>
     </tr>`).join('');
@@ -702,7 +702,7 @@ function inventoryTable(inv, priceLabel) {
   const showPrice = inv.some((it) => it.ducats != null);
   const showCredits = inv.some((it) => it.credits != null);
   const rows = inv.map((it) => `<tr>
-      <td><span class="item-cell">${itemIcon(it.thumbnail, it.uniqueName)}<span data-name-for="${esc(it.uniqueName || '')}">${esc(displayName(it.item, it.uniqueName))}</span></span></td>
+      <td><span class="item-cell">${itemIcon(it.thumbnail, it.uniqueName)}<span>${esc(displayName(it.item, it.uniqueName))}</span></span></td>
       ${showPrice ? `<td class="num">${it.ducats != null ? num(it.ducats) : '—'}</td>` : ''}
       ${showCredits ? `<td class="num">${it.credits != null ? num(it.credits) : '—'}</td>` : ''}
     </tr>`).join('');
@@ -744,7 +744,7 @@ function rDarvo(d) {
   const list = d.dailyDeals || [];
   if (!list.length) return empty('No daily deal in this feed snapshot.');
   return list.map((deal) => `<div class="entry">
-      <div class="entry-head"><span class="entry-title"><span class="item-cell">${itemIcon(deal.thumbnail, deal.uniqueName)}<span data-name-for="${esc(deal.uniqueName || '')}">${esc(displayName(deal.item, deal.uniqueName))}</span></span></span>${timer(deal.expiry, 'ends in ')}</div>
+      <div class="entry-head"><span class="entry-title"><span class="item-cell">${itemIcon(deal.thumbnail, deal.uniqueName)}<span>${esc(displayName(deal.item, deal.uniqueName))}</span></span></span>${timer(deal.expiry, 'ends in ')}</div>
       <div class="entry-sub">${num(deal.salePrice)} plat${deal.originalPrice ? ` (was ${num(deal.originalPrice)})` : ''}${deal.discount ? ` · −${deal.discount}%` : ''} · ${num(deal.sold || 0)}/${num(deal.total || 0)} sold</div>
     </div>`).join('');
 }
@@ -809,7 +809,7 @@ function flashRows() {
       ? esc(fmtDateYear(f.expiry))
       : timer(f.expiry, '');
     return `<tr>
-      <td><span class="item-cell">${icon}<span data-name-for="${esc(f.uniqueName || '')}">${esc(displayName(f.item, f.uniqueName))}</span></span></td>
+      <td><span class="item-cell">${icon}<span>${esc(displayName(f.item, f.uniqueName))}</span></span></td>
       <td class="num">${price}</td>
       <td class="num">${f.discount ? `−${f.discount}%` : '—'}</td>
       <td class="num">${ends}</td>
@@ -1115,7 +1115,7 @@ async function enrichIcons(root) {
           if (!res.ok) return null;
           const results = await res.json();
           const hit = (results || []).find((r) => r.uniqueName === uniqueName);
-          return hit ? { imageName: hit.imageName, name: hit.name } : null;
+          return hit ? { imageName: hit.imageName } : null;
         } catch { return null; }
       })());
     }
@@ -1125,11 +1125,6 @@ async function enrichIcons(root) {
       img.dataset.done = '1';
       if (hit.imageName) { img.src = ICON_CDN + hit.imageName; img.hidden = false; }
     });
-    if (hit.name) {
-      root.querySelectorAll(`[data-name-for="${CSS.escape(uniqueName)}"]`).forEach((el) => {
-        if (isMangled(el.textContent)) el.textContent = hit.name;
-      });
-    }
   }
 }
 
