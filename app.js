@@ -294,7 +294,7 @@ function rNews(d) {
 
 /* Fissures carry their own filter state and controls, so the section moves
    as one unit. */
-const fissureFilter = { tier: '', type: '' };
+const fissureFilter = { tier: '', type: '', planet: '' };
 
 function fissureRows(list) {
   if (!list.length) return empty('None matching.');
@@ -308,7 +308,8 @@ function fissureGroups(d) {
   const now = Date.now();
   const list = (d.fissures || []).filter((f) => Date.parse(f.expiry) > now
     && (!fissureFilter.tier || f.tier === fissureFilter.tier)
-    && (!fissureFilter.type || f.missionType === fissureFilter.type));
+    && (!fissureFilter.type || f.missionType === fissureFilter.type)
+    && (!fissureFilter.planet || f.planet === fissureFilter.planet));
   const byExpiry = (a, b) => Date.parse(a.expiry) - Date.parse(b.expiry);
   const group = (title, arr) => `<h3 class="sticky-sub">${title}</h3><div class="entries-2col">${fissureRows([...arr].sort(byExpiry))}</div>`;
   return group('Normal', list.filter((f) => !f.isHard && !f.isStorm))
@@ -319,10 +320,17 @@ function fissureGroups(d) {
 function rFissures(d) {
   const tiers = [...new Set((d.fissures || []).map((f) => f.tier))].sort();
   const types = [...new Set((d.fissures || []).map((f) => f.missionType))].sort();
+  const planets = [...new Set((d.fissures || []).map((f) => f.planet).filter(Boolean))].sort();
+  // A selection whose value has rotated out of the feed would otherwise
+  // silently empty the section on the next refresh.
+  if (fissureFilter.tier && !tiers.includes(fissureFilter.tier)) fissureFilter.tier = '';
+  if (fissureFilter.type && !types.includes(fissureFilter.type)) fissureFilter.type = '';
+  if (fissureFilter.planet && !planets.includes(fissureFilter.planet)) fissureFilter.planet = '';
   const opts = (vals, sel) => `<option value="">All</option>` + vals.map((v) => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
   return `<div class="filters">
       <label>Tier <select data-f="tier">${opts(tiers, fissureFilter.tier)}</select></label>
       <label>Mission type <select data-f="type">${opts(types, fissureFilter.type)}</select></label>
+      <label>Planet <select data-f="planet">${opts(planets, fissureFilter.planet)}</select></label>
     </div>
     <div class="fissure-list">${fissureGroups(d)}</div>`;
 }

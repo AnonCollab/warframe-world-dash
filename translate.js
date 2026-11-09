@@ -559,12 +559,16 @@
     const mkFissure = (f, isStorm) => {
       const t = tierFor(f.Modifier || f.ActiveMissionTier);
       const node = nodeName(f.Node);
+      const reg = regions[f.Node] || {};
       return {
         id: oid(f._id),
         activation: iso(rawMs(f.Activation)),
         expiry: iso(rawMs(f.Expiry)),
         node,
         nodeKey: node,
+        // The node's system (planet), resolved the same way nodeName
+        // resolves it — powers the section's Planet filter.
+        planet: reg.systemName ? (lang(reg.systemName) ?? humanize(reg.systemName)) : '',
         missionType: missionTypeName(f.MissionType || (regions[f.Node] || {}).missionType),
         missionTypeKey: missionTypeName(f.MissionType || (regions[f.Node] || {}).missionType),
         enemy: factionName((regions[f.Node] || {}).faction),
